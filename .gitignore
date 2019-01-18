@@ -4,3 +4,4 @@
 *.h
 *.html
 
+__pycache__

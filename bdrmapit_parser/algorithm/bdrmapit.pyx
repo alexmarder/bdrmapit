@@ -24,7 +24,10 @@ cdef class Bdrmapit:
         return updates[router]
 
     cpdef int get_asn(self, Router router, Updates updates) except *:
-        return self.get(router, updates).asn
+        result = self.get(router, updates)
+        if result:
+            return result.asn
+        return -1
 
     cpdef str get_org(self, Router router, Updates updates):
         return self.get(router, updates).org
