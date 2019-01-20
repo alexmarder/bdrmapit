@@ -1,0 +1,111 @@
+# Apple
+714 6185
+
+# Microsoft
+8075 8068
+
+# Telefonica Germany GmbH & Co.OHG
+6805 13184
+
+# ISC
+1280 3557 27320 23708 23709 24047 33082 30122 30124 30126 30130 30132 33071 33073 33077 33080 
+
+# Akamai
+20940 16625 21342 31110 33905 14618
+
+# Wikimedia
+14907 11820
+
+# HiNet
+9680 3462
+
+# SOX
+10490 2637
+
+# NASA
+297 270
+
+# TWC
+7843 3456
+
+# Limelight
+22822 38622 45396
+
+# Level3
+3356 3549
+
+# Rackspace
+12200 19994 27357
+
+# Spotify
+8403 43650
+
+# Leaseweb
+16265 60781 28753 30633 7203
+
+# Netzbetrieb GmbH
+33891 201011
+
+# Forcepoint Cloud
+35788 7598 42465 44444
+
+####### Alex #######
+# GTT
+3257 4436
+
+# Amazon
+16509 39111 14618 8987
+
+# AT&T
+7018 2386 6389 2686 17231 5107 17227 16966 6386 17232 17225 2687 6904 17232 2685 10456
+
+# AT&T acquired Wayport in 2008 and operates US network
+7018 14654
+
+# Akamai
+20940 35994
+
+# PCH
+42 715
+
+# Netzberieb
+33891 201011
+
+# Medco
+5696 13373
+
+# Academia Sinica Grid Computing Center
+9264 24167
+
+# US Geological Survey
+1842 5663
+
+# Arizona
+2900 1706 62600
+
+# UNM
+3388 40498
+
+# UEN/IRON
+210 46435
+
+# KyREN
+3714 10437
+
+# OARnet
+3112 600
+
+# UI
+40387 1224
+
+# Internet2
+11537 11164 396450
+
+# Vidyo
+22308 393462 393462
+
+# NIH
+3527 393689 70
+
+# Google
+15169 41264

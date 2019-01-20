@@ -28,9 +28,6 @@ cdef class ParseResults:
         self.dps = set()
         self.mpls = set()
 
-    def __str__(self):
-        return 'Addrs {:,d} Adjs {:,d} DPs {:,d} MPLS {:,d}'.format(len(self.addrs), len(self.adjs), len(self.dps), len(self.mpls))
-
     cpdef void update(self, ParseResults results) except *:
         self.addrs.update(results.addrs)
         self.adjs.update(results.adjs)
@@ -40,12 +37,12 @@ cdef class ParseResults:
 
 # @cython.wraparound(False)
 # @cython.boundscheck(False)
-cpdef ParseResults parse(TraceFile tfile):
+cpdef tuple parse(TraceFile tfile):
     cdef ParseResults results = ParseResults()
-    cdef set addrs = results.addrs
-    cdef set adjs = results.adjs
-    cdef set dps = results.dps
-    cdef set mpls = results.mpls
+    cdef set addrs = set()
+    cdef set adjs = set()
+    cdef set dps = set()
+    cdef set mpls = set()
     cdef Reader f
     cdef Trace trace
     cdef list hops
@@ -90,33 +87,42 @@ cpdef ParseResults parse(TraceFile tfile):
                 adjs.add((x.addr, y.addr, distance))
     finally:
         f.close()
-    return results
+    return addrs, adjs, dps, mpls
 
 
 def parse_sequential(list files, IP2AS ip2as):
     global _ip2as
-    cdef ParseResults results = ParseResults(), newresults
+    cdef set addrs = set(), adjs = set(), dps = set(), mpls = set()
+    cdef set newaddrs, newadjs, newdps, newmpls
     cdef TraceFile tfile
     _ip2as = ip2as
 
-    pb = Progress(len(files), 'Parsing traceroute files', callback=lambda: str(results))
+    pb = Progress(len(files), 'Parsing traceroute files', callback=lambda: 'Addrs {:,d} Adjs {:,d} DPs {:,d}'.format(len(addrs), len(adjs), len(dps)))
     for tfile in pb.iterator(files):
-        newresults = parse(tfile)
-        results.update(newresults)
-    return results
+        # parse(tfile.filename, tfile.type, ip2as, addrs=addrs, adjs=adjs, dps=dps)
+        newaddrs, newadjs, newdps, newmpls = parse(tfile)
+        addrs.update(newaddrs)
+        adjs.update(newadjs)
+        dps.update(newdps)
+        mpls.update(newmpls)
+    return addrs, adjs, dps, mpls
 
 
 def parse_parallel(list files, IP2AS ip2as, poolsize):
     global _ip2as
-    cdef ParseResults results = ParseResults(), newresults
+    cdef set addrs = set(), adjs = set(), dps = set(), mpls = set()
+    cdef set newaddrs, newadjs, newdps, newmpls
     cdef TraceFile tfile
     _ip2as = ip2as
 
-    pb = Progress(len(files), 'Parsing traceroute files', callback=lambda: str(results))
+    pb = Progress(len(files), 'Parsing traceroute files', callback=lambda: 'Addrs {:,d} Adjs {:,d} DPs {:,d}'.format(len(addrs), len(adjs), len(dps)))
     with Pool(poolsize) as pool:
-        for newresults in pb.iterator(pool.imap_unordered(parse, files)):
-            results.update(newresults)
-    return results
+        for newaddrs, newadjs, newdps, newmpls in pb.iterator(pool.imap_unordered(parse, files)):
+            addrs.update(newaddrs)
+            adjs.update(newadjs)
+            dps.update(newdps)
+            mpls.update(newmpls)
+    return addrs, adjs, dps, mpls
 
 
 cdef dict listify(d):
@@ -125,15 +131,14 @@ cdef dict listify(d):
     return {k: list(v) for k, v in d.items()}
 
 
-cpdef dict build_graph_json(ParseResults parseres, IP2AS ip2as):
-    cdef dict results = {'addrs': list(parseres.addrs), 'mpls': list(parseres.mpls)}
+cpdef dict build_graph_json(set addrs, set adjs, set dps, IP2AS ip2as):
+    cdef dict results = {'addrs': list(addrs)}
     cdef set remaining = set()
     cdef str x, y
     cdef int distance
-
     nexthop = defaultdict(set)
     multi = defaultdict(set)
-    for x, y, distance in parseres.adjs:
+    for x, y, distance in adjs:
         if distance == 1 or ip2as[x] == ip2as[y]:
             nexthop[x].add(y)
         elif distance > 0:
@@ -144,7 +149,7 @@ cpdef dict build_graph_json(ParseResults parseres, IP2AS ip2as):
     results['nexthop'] = listify(nexthop)
     results['multi'] = listify(multi)
     dests = defaultdict(set)
-    for addr, asn in parseres.dps:
+    for addr, asn in dps:
         dests[addr].add(asn)
     results['dps'] = listify(dests)
     return results

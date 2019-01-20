@@ -10,6 +10,12 @@ cdef class TraceFile:
     cdef public OutputType type
 
 
-cpdef tuple parse(TraceFile tfile);
+cdef class ParseResults:
+    cdef readonly set addrs, adjs, dps, mpls
+
+    cpdef void update(self, ParseResults results) except *;
+
+
+cpdef ParseResults parse(TraceFile tfile);
 cdef dict listify(d);
-cpdef dict build_graph_json(set addrs, set adjs, set dps, IP2AS ip2as);
+cpdef dict build_graph_json(ParseResults parseres, IP2AS ip2as);

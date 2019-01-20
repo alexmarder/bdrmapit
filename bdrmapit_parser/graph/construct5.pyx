@@ -19,7 +19,7 @@ cdef class Graph:
 
 # @cython.nonecheck(False)
 # @cython.overflowcheck(False)
-cpdef Graph construct_graph(list addrs, dict nexthop, dict multi, dict dps, list mpls, IP2AS ip2as, AS2Org as2org, str nodes_file=None):
+cpdef Graph construct_graph(list addrs, dict nexthop, dict multi, dict dps, IP2AS ip2as, AS2Org as2org, str nodes_file=None):
     cdef dict interfaces = {}, routers = {}
     cdef str addr, edge
     cdef int asn, i, predcount
