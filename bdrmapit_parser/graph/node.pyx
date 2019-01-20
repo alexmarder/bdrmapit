@@ -10,6 +10,7 @@ cdef class Router:
         self.succ = set()
         self.dests = set()
         self.origins = {}
+        self.mpls = False
         # self.origins = defaultdict(set)
 
     def __repr__(self):

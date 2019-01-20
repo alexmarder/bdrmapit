@@ -33,6 +33,9 @@ cpdef Graph construct_graph(list addrs, dict nexthop, dict multi, dict dps, list
         asn = ip2as.asn(addr)
         interface = Interface(addr, asn, as2org[asn])
         interfaces[addr] = interface
+    for addr in mpls:
+        interface = interfaces[addr]
+        interface.mpls = True
     for interface in interfaces.values():
         if not interface.router:
             router = Router(interface.addr)

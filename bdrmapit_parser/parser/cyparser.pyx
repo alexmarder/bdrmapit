@@ -71,7 +71,7 @@ cpdef ParseResults parse(TraceFile tfile):
             for i in range(len(hops)):
                 x = hops[i]
                 addrs.add(x.addr)
-                if x.ismpls:
+                if x.ismpls or (x.icmp_q_ttl > 1 and x.icmp_type == 11):
                     mpls.add(x.addr)
                 if x.icmp_type != 0:
                     dps.add((x.addr, dst_asn))
