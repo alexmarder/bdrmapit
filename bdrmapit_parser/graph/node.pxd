@@ -6,7 +6,6 @@ cdef class Router:
     cdef readonly set succ
     cdef readonly set dests
     cdef readonly dict origins
-    cdef public bint mpls
 
 cdef class Interface:
     cdef readonly str addr
@@ -16,6 +15,7 @@ cdef class Interface:
     cdef readonly dict pred
     cdef public set dests
     cdef public bint vrf
+    cdef public bint mpls
 
 ctypedef fused Node:
     Router

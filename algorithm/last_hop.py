@@ -1,5 +1,3 @@
-import warnings
-from collections import Counter
 import heapq as hq
 from typing import List, Set
 
@@ -38,75 +36,53 @@ class Debug:
         return False
 
 
-def heaptest(bdrmapit: Bdrmapit, rdests: Set[int], interfaces: List[Interface]):
+def heaptest(bdrmapit: Bdrmapit, rdests: Set[int], interface: Interface):
     heap = []
     for a in rdests:
         hq.heappush(heap, (bdrmapit.bgp.conesize[a], -a, a))
     original_min = heap[0][-1]
     while heap:
         dest = hq.heappop(heap)[-1]
-        for i in interfaces:
-            if i.asn == dest or bdrmapit.bgp.rel(i.asn, dest):
-                return dest
+        if interface.asn == dest or bdrmapit.bgp.rel(interface.asn, dest):
+            return dest
     return original_min
-
-
-def nodests(bdrmapit: Bdrmapit, router: Router, interfaces: List[Interface]):
-    if len(interfaces) == 1 or len({i.asn for i in interfaces}):
-        dest = interfaces[0].asn
-        utype = NODEST
-        return dest, utype
-    else:
-        warnings.warn('Unexpected branch warning: {} {}'.format(router.name, Counter(i.asn for i in interfaces)))
-        dest = -1
-        utype = NOTIMPLEMENTED
-        return dest, utype
 
 
 def annotate(bdrmapit: Bdrmapit, router: Router):
     utype = -1
     rdests = router.dests
-    if DEBUG:
-        print(rdests)
-    interfaces = router.interfaces
+    if DEBUG: print('Dests: {}'.format(rdests))
+    interface = router.interfaces[0]
+    iasn = interface.asn
     if len(rdests) == 0 or all(dest <= 0 for dest in rdests):
-        return nodests(bdrmapit, router, interfaces)
+        return iasn, NODEST
     rorgs = {bdrmapit.as2org[d] for d in rdests}
     if len(rorgs) == 1:
         dest = list(rdests)[0]
         utype = SINGLE
     else:
-        ifaces = {interface.asn for interface in interfaces}
-        if DEBUG:
-            print('Ifaces: {}'.format(ifaces))
-        same = [dest for dest in rdests if dest in ifaces]
-        rels = [dest for dest in rdests if any(bdrmapit.bgp.rel(i, dest) for i in ifaces)]
-        if DEBUG:
-            print('Same: {}'.format(same))
-            print('Rels: {}'.format(rels))
-        if len(same) == 1:
-            return same[0], 8
+        if DEBUG: print('IASN: {}'.format(iasn))
+        if iasn in rdests:
+            if DEBUG: print('Same: {}'.format(iasn))
+            return iasn, 8
+        rels: List[int] = [dest for dest in rdests if bdrmapit.bgp.rel(iasn, dest)]
+        if DEBUG: print('Rels: {}'.format(rels))
         if rels:
             asn = min(rels, key=lambda x: (bdrmapit.bgp.conesize[x], -x))
-            # asn = max(rels, key=lambda x: (len(bdrmapit.bgp.cone[x] & rdests), -bdrmapit.bgp.conesize[x], x))
             return asn, 9
-        dest = heaptest(bdrmapit, rdests, interfaces)
+        dest = heaptest(bdrmapit, rdests, interface)
         if utype == MODIFIED:
             utype = HEAPED_MODIFIED
         else:
             utype = HEAPED
-    iasns = Counter(i.asn for i in interfaces if i.asn > 0)
-    if iasns and not dest in iasns and not any(bdrmapit.bgp.rel(iasn, dest) for iasn in iasns):
-        intersection = bdrmapit.bgp.providers[dest] & {a for i in interfaces for a in bdrmapit.bgp.customers[i.asn]}
+    if iasn > 0 and iasn != dest and not bdrmapit.bgp.rel(iasn, dest):
+        if DEBUG: print('No Rel: {}-{}'.format(iasn, dest))
+        intersection = bdrmapit.bgp.providers[dest] & bdrmapit.bgp.customers[iasn]
         if len(intersection) == 1:
             dest = peek(intersection)
             return dest, MISSING_INTER
-        if DEBUG:
-            print(bdrmapit.bgp.providers[dest] & {a for i in interfaces for a in bdrmapit.bgp.peers[i.asn]})
-        c = Counter(i.asn for i in interfaces if i.asn > 0)
-        if c:
-            return max(c, key=lambda x: (c[x], -bdrmapit.bgp.conesize[x], -x)), MISSING_NOINTER
-        return dest, MISSING_NOINTER
+        if DEBUG: print(bdrmapit.bgp.providers[dest] & bdrmapit.bgp.peers[iasn])
+        return iasn, MISSING_NOINTER
     return dest, utype
 
 

@@ -1,0 +1,83 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "The arguments to run bdrmapIT",
+  "type": "object",
+  "properties": {
+    "ip2as": {
+      "description": "Filename of prefix-to-AS mappings in CAIDA prefix2as format",
+      "type": "string"
+    },
+    "as2org": {
+      "type": "object",
+      "properties": {
+        "as2org": {
+          "description": "CAIDA AS2Org filename",
+          "type": "string"
+        },
+        "additional": {
+          "description": "Filename with additional siblings",
+          "type": "string"
+        }
+      },
+      "required": ["as2org"]
+    },
+    "as-rels": {
+      "description": "AS relationship inferences from CAIDA",
+      "type": "object",
+      "properties": {
+        "rels": {
+          "description": "The relationship file that indicates provider or peer relationships",
+          "type": "string"
+        },
+        "cone": {
+          "description": "The customer cone file",
+          "type": "string"
+        }
+      },
+      "required": ["rels", "cone"]
+    },
+    "warts": {
+      "description": "Warts traceroute files, such as those created by scamper",
+      "type": "object",
+      "properties": {
+        "files": {
+          "description": "File with traceroute files, newline separated",
+          "type": "string"
+        },
+        "files-list": {
+          "description": "List of traceroute filenames",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      }
+    },
+    "atlas": {
+      "description": "Warts traceroute files, such as those created by scamper",
+      "type": "object",
+      "properties": {
+        "file-list": {
+          "description": "File with traceroute files, newline separated",
+          "type": "string"
+        },
+        "files": {
+          "description": "List of traceroute filenames",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      }
+    },
+    "processes": {
+      "type": "integer",
+      "default": 2
+    }
+  },
+  "required": ["ip2as", "as2org", "as-rels"]
+}

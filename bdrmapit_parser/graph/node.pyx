@@ -10,7 +10,6 @@ cdef class Router:
         self.succ = set()
         self.dests = set()
         self.origins = {}
-        self.mpls = False
         # self.origins = defaultdict(set)
 
     def __repr__(self):
@@ -27,6 +26,7 @@ cdef class Interface:
         self.pred = {}
         self.dests = set()
         self.vrf = False
+        self.mpls = False
 
     def __repr__(self):
         return 'Interface<{} {}>'.format(self.addr, self.asn)

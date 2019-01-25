@@ -9,8 +9,9 @@ cdef class Updates(dict):
     cdef public dict changes
 
     cpdef void add_update(self, Node node, int asn, str org, int utype) except *;
+    cpdef void add_update_direct(self, Node node, int asn, str org, int utype) except *;
     cpdef void advance(self) except *;
-    cpdef int asn(self, Node node) except *;
+    cpdef int asn(self, node) except *;
     cpdef Updates make_copy(self, str name=*);
     cpdef str org(self, Node node);
 

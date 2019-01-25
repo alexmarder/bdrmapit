@@ -66,7 +66,7 @@ cpdef ParseResults parse(TraceFile tfile):
             trace.prune_dups()
             trace.prune_loops()
             # trace.set_packed()
-            hops = trace.hops
+            hops = [h for h in trace.hops if _ip2as[h.addr] != -1]
             dst_asn = _ip2as.asn(trace.dst)
             for i in range(len(hops)):
                 x = hops[i]
