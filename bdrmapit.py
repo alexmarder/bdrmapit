@@ -19,8 +19,8 @@ from bdrmapit_parser.parser.cyparser import TraceFile, OutputType, parse_paralle
 
 def main():
     parser = ArgumentParser()
-    parser.add_argument('-o', '--output', required=True, help='Output filename')
-    parser.add_argument('config', help='JSON config file in accordance with schema.json')
+    parser.add_argument('-o', '--output', required=True, help='Output filename for sqlite3 output.')
+    parser.add_argument('-c', '--config', required=True, help='JSON config file in accordance with schema.json')
     args = parser.parse_args()
 
     if os.path.exists(args.output):
