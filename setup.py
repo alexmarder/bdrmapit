@@ -9,7 +9,7 @@ extensions_names = {
     'bdrmapit_parser.graph.node': ['bdrmapit_parser/graph/node.pyx'],
     'bdrmapit_parser.graph.construct': ['bdrmapit_parser/graph/construct.pyx'],
     'bdrmapit_parser.algorithm.updates_dict': ['bdrmapit_parser/algorithm/updates_dict.pyx'],
-    'bdrmapit_parser.algorithm.bdrmapit': ['bdrmapit_parser/algorithm/bdrmapit.pyx']
+    # 'bdrmapit_parser.algorithm.bdrmapit': ['bdrmapit_parser/algorithm/bdrmapit.pyx']
 }
 
 extensions = [Extension(k, v) for k, v in extensions_names.items()]
