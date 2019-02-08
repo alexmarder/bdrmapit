@@ -48,9 +48,12 @@ cpdef ParseResults worker(inq, outq):
         tfile = inq.get()
         if tfile is None:
             outq.put(('res', results))
-        newresults = parse(tfile)
-        results.update(newresults)
-        outq.put(('inc', 1))
+        try:
+            newresults = parse(tfile)
+            results.update(newresults)
+            outq.put(('inc', 1))
+        except:
+            outq.put(('err', tfile.filename))
 
 
 cpdef ParseResults parse(TraceFile tfile):
@@ -143,6 +146,9 @@ def parse_parallel(list files, IP2AS ip2as, poolsize):
             newresults = outq.get()
             results.update(newresults)
             i -= 1
+        else:
+            print()
+            print(res)
         if i <= 0:
             break
     for p in procs:
