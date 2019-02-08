@@ -40,17 +40,17 @@ cdef class ParseResults:
         self.mpls.update(results.mpls)
 
 
-cpdef ParseResults worker(inq, outq, resq):
+cpdef ParseResults worker(inq, outq):
     cdef TraceFile tfile
     cdef ParseResults results = ParseResults()
 
     while True:
         tfile = inq.get()
         if tfile is None:
-            resq.put(results)
+            outq.put(('res', results))
         newresults = parse(tfile)
         results.update(newresults)
-        outq.put(1)
+        outq.put(('inc', 1))
 
 
 cpdef ParseResults parse(TraceFile tfile):
@@ -127,26 +127,22 @@ def parse_parallel(list files, IP2AS ip2as, poolsize):
 
     inq = Queue()
     outq = Queue()
-    resq = Queue()
     for tfile in files:
         inq.put(tfile)
     pb = Progress(len(files), 'Parsing traceroute files')
-    procs = [Process(target=worker, args=(inq, outq, resq)) for i in range(poolsize)]
+    procs = [Process(target=worker, args=(inq, outq)) for i in range(poolsize)]
     i = len(procs)
-    rlist = [outq, resq]
     for p in procs:
         inq.put(None)
         p.start()
     while True:
-        ready = wait(rlist)
-        for reader in ready:
-            if reader == inq:
-                outq.get()
-                pb.inc(1)
-            else:
-                newresults = resq.get()
-                results.update(newresults)
-                i -= 1
+        rtype, res = outq.get()
+        if rtype == 'inc':
+            pb.inc(1)
+        elif rtype == 'res':
+            newresults = outq.get()
+            results.update(newresults)
+            i -= 1
         if i <= 0:
             break
     for p in procs:
