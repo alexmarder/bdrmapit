@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 import json
 import os
+import pickle
 import sqlite3
 from argparse import ArgumentParser
 
@@ -21,6 +22,7 @@ def main():
     parser = ArgumentParser()
     parser.add_argument('-o', '--output', required=True, help='Output filename for sqlite3 output.')
     parser.add_argument('-c', '--config', required=True, help='JSON config file in accordance with schema.json')
+    parser.add_argument('--graph-only', action='store_true', help='Only create the graph, then save it to the specified file.')
     args = parser.parse_args()
 
     if os.path.exists(args.output):
@@ -64,6 +66,10 @@ def main():
 
     parseres = parse_parallel(files, ip2as, config['processes'])
     results = build_graph_json(parseres, ip2as)
+    if args.graph_only:
+        with open(args.output, 'w') as f:
+            pickle.dump(results, f)
+        return
     graph = construct_graph(results['addrs'], results['nexthop'], results['multi'], results['dps'], results['mpls'], ip2as, as2org)
     bdrmapit = Bdrmapit(graph, as2org, bgp)
     bdrmapit.set_dests()
