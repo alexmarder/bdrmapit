@@ -48,6 +48,7 @@ cpdef ParseResults worker(inq, outq):
         tfile = inq.get()
         if tfile is None:
             outq.put(('res', results))
+            break
         try:
             newresults = parse(tfile)
             results.update(newresults)
