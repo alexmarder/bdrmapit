@@ -131,7 +131,7 @@ def parse_parallel(list files, IP2AS ip2as, poolsize):
     for tfile in files:
         inq.put(tfile)
     pb = Progress(len(files), 'Parsing traceroute files')
-    procs = [Process(target=worker, args=(inq, outq)) for i in range(poolsize)]
+    procs = [Process(target=worker, args=(inq, outq, resq)) for i in range(poolsize)]
     i = len(procs)
     rlist = [outq, resq]
     for p in procs:
