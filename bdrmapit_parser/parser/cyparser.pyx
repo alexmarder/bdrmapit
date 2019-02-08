@@ -1,4 +1,6 @@
 from collections import defaultdict
+from multiprocessing import Process, Queue
+from multiprocessing.connection import wait
 from multiprocessing.pool import Pool
 
 from traceutils.progress.bar import Progress
@@ -38,8 +40,19 @@ cdef class ParseResults:
         self.mpls.update(results.mpls)
 
 
-# @cython.wraparound(False)
-# @cython.boundscheck(False)
+cpdef ParseResults worker(inq, outq, resq):
+    cdef TraceFile tfile
+    cdef ParseResults results = ParseResults()
+
+    while True:
+        tfile = inq.get()
+        if tfile is None:
+            resq.put(results)
+        newresults = parse(tfile)
+        results.update(newresults)
+        outq.put(1)
+
+
 cpdef ParseResults parse(TraceFile tfile):
     cdef ParseResults results = ParseResults()
     cdef set addrs = results.addrs
@@ -112,10 +125,32 @@ def parse_parallel(list files, IP2AS ip2as, poolsize):
     cdef TraceFile tfile
     _ip2as = ip2as
 
-    pb = Progress(len(files), 'Parsing traceroute files', callback=lambda: str(results))
-    with Pool(poolsize) as pool:
-        for newresults in pb.iterator(pool.imap_unordered(parse, files)):
-            results.update(newresults)
+    inq = Queue()
+    outq = Queue()
+    resq = Queue()
+    for tfile in files:
+        inq.put(tfile)
+    pb = Progress(len(files), 'Parsing traceroute files')
+    procs = [Process(target=worker, args=(inq, outq)) for i in range(poolsize)]
+    i = len(procs)
+    rlist = [outq, resq]
+    for p in procs:
+        inq.put(None)
+        p.start()
+    while True:
+        ready = wait(rlist)
+        for reader in ready:
+            if reader == inq:
+                outq.get()
+                pb.inc(1)
+            else:
+                newresults = resq.get()
+                results.update(newresults)
+                i -= 1
+        if i <= 0:
+            break
+    for p in procs:
+        p.join()
     return results
 
 
