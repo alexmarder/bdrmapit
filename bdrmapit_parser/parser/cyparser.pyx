@@ -144,7 +144,6 @@ def parse_parallel(list files, IP2AS ip2as, poolsize):
         if rtype == 'inc':
             pb.inc(1)
         elif rtype == 'res':
-            newresults = outq.get()
             results.update(newresults)
             i -= 1
         else:

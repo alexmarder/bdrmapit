@@ -15,7 +15,7 @@ from algorithm.algorithm import Bdrmapit
 from bdrmapit_parser.algorithm.updates_dict import UpdateObj
 from bdrmapit_parser.graph.construct import construct_graph
 from bdrmapit_parser.graph.node import Interface, Router
-from bdrmapit_parser.parser.cyparser import TraceFile, OutputType, parse_parallel, build_graph_json
+from bdrmapit_parser.parser.cyparser import TraceFile, OutputType, parse_parallel, build_graph_json, parse_sequential
 
 
 def main():
@@ -64,7 +64,10 @@ def main():
             files.extend(TraceFile(file, OutputType.ATLAS) for file in atlas['files-list'])
     Progress.message('Files: {:,d}'.format(len(files)))
 
-    parseres = parse_parallel(files, ip2as, config['processes'])
+    if config['processes'] > 1:
+        parseres = parse_parallel(files, ip2as, config['processes'])
+    else:
+        parseres = parse_sequential(files, ip2as)
     results = build_graph_json(parseres, ip2as)
     if args.graph_only:
         with open(args.output, 'w') as f:
