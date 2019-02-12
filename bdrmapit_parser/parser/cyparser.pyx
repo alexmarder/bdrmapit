@@ -1,6 +1,4 @@
 from collections import defaultdict
-from multiprocessing import Process, Queue
-from multiprocessing.connection import wait
 from multiprocessing.pool import Pool
 
 from traceutils.progress.bar import Progress
@@ -40,23 +38,8 @@ cdef class ParseResults:
         self.mpls.update(results.mpls)
 
 
-cpdef ParseResults worker(inq, outq):
-    cdef TraceFile tfile
-    cdef ParseResults results = ParseResults()
-
-    while True:
-        tfile = inq.get()
-        if tfile is None:
-            outq.put(('res', results))
-            break
-        try:
-            newresults = parse(tfile)
-            results.update(newresults)
-            outq.put(('inc', 1))
-        except:
-            outq.put(('err', tfile.filename))
-
-
+# @cython.wraparound(False)
+# @cython.boundscheck(False)
 cpdef ParseResults parse(TraceFile tfile):
     cdef ParseResults results = ParseResults()
     cdef set addrs = results.addrs
@@ -129,30 +112,10 @@ def parse_parallel(list files, IP2AS ip2as, poolsize):
     cdef TraceFile tfile
     _ip2as = ip2as
 
-    inq = Queue()
-    outq = Queue()
-    for tfile in files:
-        inq.put(tfile)
-    pb = Progress(len(files), 'Parsing traceroute files')
-    procs = [Process(target=worker, args=(inq, outq)) for i in range(poolsize)]
-    i = len(procs)
-    for p in procs:
-        inq.put(None)
-        p.start()
-    while True:
-        rtype, res = outq.get()
-        if rtype == 'inc':
-            pb.inc(1)
-        elif rtype == 'res':
-            results.update(res)
-            i -= 1
-        else:
-            print()
-            print(res)
-        if i <= 0:
-            break
-    for p in procs:
-        p.join()
+    pb = Progress(len(files), 'Parsing traceroute files', callback=lambda: str(results))
+    with Pool(poolsize) as pool:
+        for newresults in pb.iterator(pool.imap_unordered(parse, files)):
+            results.update(newresults)
     return results
 
 
