@@ -74,6 +74,10 @@
         }
       }
     },
+    "aliases": {
+      "description": "Alias resolution file in CAIDA ITDK format",
+      "type": "string"
+    },
     "processes": {
       "type": "integer",
       "default": 2

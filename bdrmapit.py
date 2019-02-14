@@ -25,19 +25,6 @@ def main():
     parser.add_argument('--graph-only', action='store_true', help='Only create the graph, then save it to the specified file.')
     args = parser.parse_args()
 
-    if os.path.exists(args.output):
-        os.remove(args.output)
-    con = sqlite3.connect(args.output)
-    con.execute('''CREATE TABLE annotation(
-        addr TEXT,
-        asn INT,
-        org TEXT,
-        conn_asn INT,
-        conn_org TEXT,
-        rtype INT,
-        itype INT
-    )''')
-
     with open('schema.json') as f:
         schema = json.load(f)
     with open(args.config) as f:
@@ -80,6 +67,18 @@ def main():
     bdrmapit.annotate_lasthops()
     bdrmapit.graph_refinement(bdrmapit.routers_succ, bdrmapit.interfaces_pred)
 
+    if os.path.exists(args.output):
+        os.remove(args.output)
+    con = sqlite3.connect(args.output)
+    con.execute('''CREATE TABLE annotation(
+        addr TEXT,
+        asn INT,
+        org TEXT,
+        conn_asn INT,
+        conn_org TEXT,
+        rtype INT,
+        itype INT
+    )''')
     interface: Interface
     values = []
     for interface in bdrmapit.graph.interfaces.values():
