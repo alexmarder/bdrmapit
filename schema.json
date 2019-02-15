@@ -79,9 +79,19 @@
       "type": "string"
     },
     "processes": {
+      "description": "Number of processes to use when parsing the traceroutes",
       "type": "integer",
       "default": 2
+    },
+    "max_iterations": {
+      "description": "Maximum number of iterations to run the graph refinement loop",
+      "type": "integer",
+      "default": 10
+    },
+    "graph": {
+      "description": "Graph file created by the --graph-only option",
+      "type": "string"
     }
   },
-  "required": ["ip2as", "as2org", "as-rels"]
+  "required": ["ip2as"]
 }
