@@ -9,7 +9,7 @@ from traceutils.progress.bar import Progress
 from traceutils.utils.utils import max_num, peek
 
 # from bdrmapit_parser.algorithm.bdrmapit import Bdrmapit
-from bdrmapit_parser.algorithm.updates_dict import Updates, UpdatesView, UpdateObj
+from bdrmapit_parser.algorithm.updates_dict import Updates, UpdatesView
 from bdrmapit_parser.graph.construct import Graph
 from bdrmapit_parser.graph.node import Router, Interface
 import heapq as hq
@@ -199,13 +199,7 @@ class Bdrmapit:
     def router_heuristics(self, router: Router, isucc: Interface, origins: Set[int], iasns: TCounter[int]):
         rsucc: Router = isucc.router
         rsucc_asn = self.rupdates.asn(rsucc)
-        iupdate = self.iupdates[isucc]
-        if iupdate:
-            succ_asn = iupdate.asn
-            succ_org = iupdate.org
-        else:
-            succ_asn = isucc.asn
-            succ_org = isucc.org
+        succ_asn = self.iupdates.asn(isucc)
         if DEBUG:
             print('\tASN={}, RASN={}, IASN={} VRF={}'.format(isucc.asn, rsucc_asn, succ_asn, router.vrf))
 
@@ -224,13 +218,13 @@ class Bdrmapit:
             return isucc.asn
 
         # If subsequent router AS is different from the subsequent interface AS
-        if rsucc_asn > 0 and rsucc_asn != succ_asn and not any(succ_org != self.as2org[iasn] for iasn in origins):
+        if rsucc_asn > 0 and rsucc_asn != isucc.asn and not any(isucc.org != self.as2org[iasn] for iasn in origins):
             if DEBUG: print('\tThird party: Router={}, RASN={}'.format(rsucc.name, rsucc_asn))
             if rsucc_asn in origins or self.any_rels(rsucc_asn, origins):
-                if DEBUG: print('\tISUCC in Dests: {} in {}'.format(succ_asn, router.dests))
-                if succ_asn not in router.dests:
+                if DEBUG: print('\tISUCC in Dests: {} in {}'.format(isucc.asn, router.dests))
+                if isucc.asn not in router.dests:
                     return rsucc_asn
-                elif self.bgp.rel(succ_asn, rsucc_asn) and not self.any_rels(succ_asn, origins):
+                elif self.bgp.rel(isucc.asn, rsucc_asn) and not self.any_rels(isucc.asn, origins):
                     return rsucc_asn
         if succ_asn <= 0 or (0 < rsucc_asn != isucc.asn):
             return isucc.asn

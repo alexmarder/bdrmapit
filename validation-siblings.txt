@@ -109,3 +109,12 @@
 
 # Google
 15169 41264
+
+# Telstra Pacnet
+4637 10026
+
+# Interoute Easynet
+8928 4589
+
+# ZColo Latysis -- Zayo colocation and Zayo bought Latisys
+3595 7226
