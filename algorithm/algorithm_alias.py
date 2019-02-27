@@ -63,7 +63,7 @@ class Debug:
 
 class Bdrmapit:
 
-    def __init__(self, graph: Graph, as2org: AS2Org, bgp: BGP):
+    def __init__(self, graph: Graph, as2org: AS2Org, bgp: BGP, strict=True):
         self.graph = graph
         self.as2org = as2org
         self.bgp = bgp
@@ -82,6 +82,7 @@ class Bdrmapit:
                     self.lasthops.append(router)
         self.interfaces_pred: List[Interface] = [i for i in graph.interfaces.values() if i.pred and not i.mpls]
         self.previous_updates = []
+        self.strict = strict
 
     def set_dests(self, increment=100000):
         pb = Progress(len(self.graph.interfaces), 'Modifying interface dests', increment=increment)
@@ -161,8 +162,10 @@ class Bdrmapit:
             # Otherwise, use the interface AS
             else:
                 if DEBUG: print(self.bgp.providers[dest] & self.multi_peers(iasns))
-                return dest, MISSING_NOINTER
-                # return max(iasns, key=lambda x: (iasns[x], -self.bgp.conesize[x], x)), MISSING_NOINTER
+                if self.strict:
+                    return max(iasns, key=lambda x: (iasns[x], -self.bgp.conesize[x], x)), MISSING_NOINTER
+                else:
+                    return dest, MISSING_NOINTER
         return dest, utype
 
     def multi_customers(self, asns):
@@ -276,8 +279,10 @@ class Bdrmapit:
                 if self.bgp.rel(sibasn, asn):
                     return asn, 300000 + utype
                     # return sibasn, 300000 + utype
-        # return max(iasns, key=lambda x: (votes[x], -self.bgp.conesize[x], x)), HIDDEN_NOINTER + utype
-        return asn, HIDDEN_NOINTER + utype
+        if self.strict:
+            return max(iasns, key=lambda x: (votes[x], -self.bgp.conesize[x], x)), HIDDEN_NOINTER + utype
+        else:
+            return asn, HIDDEN_NOINTER + utype
 
     def annotate_router(self, router: Router):
         isucc: Interface
