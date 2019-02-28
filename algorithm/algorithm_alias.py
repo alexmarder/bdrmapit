@@ -203,14 +203,14 @@ class Bdrmapit:
         rsucc: Router = isucc.router
         rsucc_asn = self.rupdates.asn(rsucc)
         iupdate = self.iupdates[isucc]
-        if iupdate:
+        if iupdate and rsucc_asn == isucc.asn:
             succ_asn = iupdate.asn
             succ_org = iupdate.org
         else:
             succ_asn = isucc.asn
             succ_org = isucc.org
         if DEBUG:
-            print('\tASN={}, RASN={}, IASN={} VRF={}'.format(isucc.asn, rsucc_asn, succ_asn, router.vrf))
+            print('\tASN={}, RASN={}, IUpdate={} VRF={}'.format(isucc.asn, rsucc_asn, succ_asn, router.vrf))
 
         # If subsequent interface AS has no known origin, use subsequent router AS
         if isucc.asn == 0 or router.vrf:
@@ -227,7 +227,8 @@ class Bdrmapit:
             return isucc.asn
 
         # If subsequent router AS is different from the subsequent interface AS
-        if rsucc_asn > 0 and rsucc_asn != succ_asn and not any(succ_org != self.as2org[iasn] for iasn in origins):
+        if rsucc_asn > 0 and rsucc_asn != succ_asn and not any(succ_org == self.as2org[iasn] for iasn in origins):
+            # print(succ_org, {self.as2org[iasn] for iasn in origins})
             if DEBUG: print('\tThird party: Router={}, RASN={}'.format(rsucc.name, rsucc_asn))
             if rsucc_asn in origins or self.any_rels(rsucc_asn, origins):
                 if DEBUG: print('\tISUCC in Dests: {} in {}'.format(succ_asn, router.dests))
@@ -235,7 +236,16 @@ class Bdrmapit:
                     return rsucc_asn
                 elif self.bgp.rel(succ_asn, rsucc_asn) and not self.any_rels(succ_asn, origins):
                     return rsucc_asn
+        # When there is no relationship between router ASes and subsequent interface AS,
+        # check if relationship between router ASes and subsequent router AS when they are the same org
+        if succ_org == self.as2org[rsucc_asn]:
+            if not any(self.bgp.rel(iasn, succ_asn) for iasn in iasns):
+                if any(self.bgp.rel(iasn, rsucc_asn) for iasn in iasns):
+                    if DEBUG: print('Testing')
+                    return rsucc_asn
         if succ_asn <= 0 or (0 < rsucc_asn != isucc.asn):
+            if DEBUG:
+                print('ugh')
             return isucc.asn
         return succ_asn
 

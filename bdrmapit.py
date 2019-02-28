@@ -94,14 +94,17 @@ def main():
         schema['required'].extend(['as2org', 'as-rels'])
     validate(config, schema)
 
+    ip2as = create_table(config['ip2as'])
+
     if 'graph' in config:
         with open(config['graph'], 'rb') as f:
+            sys.stdout.write('Unpickling graph.')
             results = pickle.load(f)
+            sys.stdout.write(' Done.\n')
     else:
         if 'warts' not in config and 'atlas' not in config:
             print('Either "warts", "atlas" or both must be specified in the configuration json.', file=sys.stderr)
             return
-        ip2as = create_table(config['ip2as'])
         files = []
         if 'warts' in config:
             warts = config['warts']
@@ -130,16 +133,17 @@ def main():
                 pickle.dump(results, f)
             return
 
-    graph = construct_graph(results['addrs'], results['nexthop'], results['multi'], results['dps'], results['mpls'], ip2as, as2org)
-
     as2org = AS2Org(config['as2org']['as2org'], config['as2org'].get('additional'))
     bgp = BGP(config['as-rels']['rels'], config['as-rels']['cone'])
 
-    bdrmapit = Bdrmapit(graph, as2org, bgp)
+    nodes_file = config.get('aliases')
+    graph = construct_graph(results['addrs'], results['nexthop'], results['multi'], results['dps'], results['mpls'], ip2as, as2org, nodes_file=nodes_file)
+
+    bdrmapit = Bdrmapit(graph, as2org, bgp, strict=False)
     bdrmapit.set_dests()
     bdrmapit.annotate_mpls()
     bdrmapit.annotate_lasthops()
-    bdrmapit.graph_refinement(bdrmapit.routers_succ, bdrmapit.interfaces_pred, config['max_iterations'])
+    bdrmapit.graph_refinement(bdrmapit.routers_succ, bdrmapit.interfaces_pred, iterations=config['max_iterations'])
 
     save_annotations(args.output, bdrmapit)
     if args.nodes_as:
