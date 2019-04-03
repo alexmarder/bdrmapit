@@ -36,7 +36,7 @@ The first step is to install <tt>traceutils</tt>, a prerequisite for creating pr
 A lot of datasets go into <tt>bdrmapIT</tt>’s inferences. All of it can be retrieved using the retrieve_external package, but it is not necessary to use it for some or all of the datasets. The examples here assume that the <tt>retrieve_external</tt> package is use. Information is provided in the [<tt>retrieve_external</tt> repo](https://github.com/alexmarder/retrieve-external/wiki).
 
 # Create Prefix to AS
-It is not necessary to use the <tt>ip2as</tt> repository to create the prefix to AS mappings if you have your own mappings. Otherwise, run the scripts as described [there](https://github.com/alexmarder/ip2as/wiki)
+It is not necessary to use the <tt>ip2as</tt> repository to create the prefix to AS mappings if you have your own mappings. Otherwise, run the scripts as described [there](https://github.com/alexmarder/ip2as/wiki).
 
 # Running bdrmapIT
 Finally, using the prefix to AS mappings, we can run <tt>bdrmapIT</tt>. First, clone the new <tt>bdrmapIT</tt> repository,
