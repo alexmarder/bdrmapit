@@ -74,14 +74,14 @@ As a sample, the following could be in a configuration file:
 After generating the configuration file, run <tt>bdrmapit.py</tt>, with arguments,
 
 Argument | Required | Description
---- | --- | ---
+:--- | :--- | :---
 -o, --output | Required | Output filename for sqlite3 output.
 -c, --config | Required | JSON configuration file in accordance with schema.json
 
 The output is an sqlite3 file with a single table named annotation. The table has the following fields,
 
 Field | Type | Description
---- | --- | ---
+:--- | :--- | :---
 addr | TEXT | Interface address
 asn | INT | Operating AS for the router on which addr resides (router annotation)
 org | TEXT | AS2Org mapping for asn
