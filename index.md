@@ -1,11 +1,18 @@
+---
+title: bdrmapIT Documentation
+---
+
 # Compilation
-There are several packages involved in running bdrmapIT. Some are required and some are optional for added convenience. To avoid potential problems, make sure to clone each package into separate directories.
+There are several packages involved in running bdrmapIT.
+Some are required and some are optional for added convenience.
+To avoid potential problems, make sure to clone each package into separate directories.
+The source code repository resides at [https://github.com/alexmarder/bdrmapit](https://github.com/alexmarder/bdrmapit).
 
 ## Required Packages
 There are three required packages:
 1. <tt>traceutils</tt> – set of utilities that enable the other required packages
 2. <tt>ip2as</tt> – creates the prefix to AS mappings needed to determine the origin AS for each IP address
-3. <tt>bdrmapit_parser</tt> – runs <tt>bdrmapIT</tt>
+3. <tt>bdrmapit</tt> – runs <tt>bdrmapIT</tt>
 
 ## Optional Packages
 There is one optional package that makes retrieving datasets easier.
@@ -35,8 +42,8 @@ It is not necessary to use the <tt>ip2as</tt> repository to create the prefix to
 Finally, using the prefix to AS mappings, we can run <tt>bdrmapIT</tt>. First, clone the new <tt>bdrmapIT</tt> repository,
 and compile the cython code.
 ```bash
-git clone https://github.com/alexmarder/bdrmapit_parser
-cd bdrmapit_parser
+git clone https://github.com/alexmarder/bdrmapit
+cd bdrmapit
 python setup.py build_ext --inplace
 ```
 
