@@ -14,6 +14,8 @@ from bdrmapit_parser.graph.construct import Graph
 from bdrmapit_parser.graph.node import Router, Interface
 import heapq as hq
 
+from vrf.prepare import VRFPrep
+from vrf.vrfedge import VRFEdge, VType
 
 DEBUG = False
 
@@ -48,16 +50,31 @@ HIDDEN_NOINTER = 200
 
 class Debug:
 
-    def __init__(self):
+    def __init__(self, bdrmapit=None, rupdates=None, iupdates=None):
         self.old = DEBUG
+        self.bdrmapit = bdrmapit
+        self.rupdates = rupdates
+        self.iupdates = iupdates
+        self.old_rupdates = None
+        self.old_iupdates = None
 
     def __enter__(self):
         global DEBUG
         DEBUG = True
+        if self.bdrmapit is not None:
+            if self.rupdates is not None:
+                self.old_rupdates, self.bdrmapit.rupdates = self.bdrmapit.rupdates, self.rupdates
+            if self.iupdates is not None:
+                self.old_iupdates, self.bdrmapit.iupdates = self.bdrmapit.iupdates, self.iupdates
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         global DEBUG
         DEBUG = self.old
+        if self.bdrmapit is not None:
+            if self.rupdates is not None:
+                self.bdrmapit.rupdates = self.old_rupdates
+            if self.iupdates is not None:
+                self.bdrmapit.iupdates = self.old_iupdates
         return False
 
 
@@ -83,6 +100,21 @@ class Bdrmapit:
         self.interfaces_pred: List[Interface] = [i for i in graph.interfaces.values() if i.pred and not i.mpls]
         self.previous_updates = []
         self.strict = strict
+
+    def test_router(self, nid, rupdates=None, iupdates=None):
+        with Debug(self, rupdates=rupdates, iupdates=iupdates):
+            r: Router = self.graph.routers[nid]
+            if r.vrf:
+                result = self.annotate_router_vrf(r)
+            else:
+                result = self.annotate_router(r)
+        print(result)
+
+    def test_interface(self, addr, rupdates=None, iupdates=None):
+        with Debug(self, rupdates=rupdates, iupdates=iupdates):
+            i = self.graph.interfaces[addr]
+            result = self.annotate_interface(i)
+        print(result)
 
     def set_dests(self, increment=100000):
         pb = Progress(len(self.graph.interfaces), 'Modifying interface dests', increment=increment)
@@ -142,6 +174,7 @@ class Bdrmapit:
         # Check for single organization
         rorgs = {self.as2org[d] for d in router.dests}
         if len(rorgs) == 1:
+            if DEBUG: print('Single Org: {}'.format(router.dests))
             dest = peek(router.dests)
             utype = SINGLE
 
@@ -249,6 +282,20 @@ class Bdrmapit:
             return isucc.asn
         return succ_asn
 
+    def vrf_heuristics(self, edge: VRFEdge, origins: Set[int], iasns: TCounter[int]):
+        rsucc: Router = edge.node
+        vtype = edge.vtype
+        if DEBUG: print('VType={}'.format(vtype))
+        if vtype.value == VType.forwarding.value or vtype.value == VType.both.value:
+            rsucc_asn = self.rupdates.asn(rsucc)
+            if DEBUG: print('ASN={}'.format(rsucc_asn))
+        elif vtype.value == VType.toforward.value:
+            rsucc_asn = max(origins, key=lambda x: (iasns[x], self.bgp.conesize[x], -x))
+            if DEBUG: print('ASN={}'.format(rsucc_asn))
+        else:
+            raise Exception('What the fuck')
+        return rsucc_asn
+
     def hidden_asn(self, iasns: TCounter[int], asn: int, utype: int, votes: Dict[int, int]):
         """
         Look for hidden AS between the interface AS and the selected AS.
@@ -294,14 +341,84 @@ class Bdrmapit:
         else:
             return asn, HIDDEN_NOINTER + utype
 
-    def annotate_router(self, router: Router):
-        isucc: Interface
+    def annotate_router_vrf(self, router: Router):
+        edge: VRFEdge
         utype: int = 0
 
         iasns: TCounter[int] = Counter(interface.asn for interface in router.interfaces if interface.asn > 0)
         if DEBUG:
             print('IASN: {}'.format(iasns))
             print('Edges={}, NH={}'.format(len(router.succ), router.nexthop))
+            print('VRF={}'.format(router.vrf))
+            print('MPLS?: {}'.format(any(i.mpls for i in router.interfaces)))
+
+        # Use heuristics to determine link votes
+        vtype = None
+        succs = Counter()
+        sasn_origins = defaultdict(set)
+        for edge in router.succ:
+            origins = router.origins[edge]
+            if DEBUG: print('Succ={}, ASN={}'.format(edge.node.name, self.rupdates[edge.node]))
+            succ_asn = self.vrf_heuristics(edge, origins, iasns)
+            if vtype is None:
+                vtype = edge.vtype
+            elif vtype.value != edge.vtype.value:
+                vtype = VType.both
+            if DEBUG: print('Heuristic: {}'.format(succ_asn))
+            if succ_asn > 0:
+                succs[succ_asn] += 1
+                sasn_origins[succ_asn].update(origins)
+        if DEBUG:
+            print('Succs: {}'.format(succs))
+            print('VType: {}'.format(vtype))
+
+        # Create votes counter and add interface AS
+        votes = succs + iasns
+        if DEBUG: print('Votes: {}'.format(votes))
+        if not votes:
+            return -1, -1
+
+        votes_rels: List[int] = [vasn for vasn in votes if any(
+            vasn == iasn or self.bgp.rel(iasn, vasn) or self.as2org[iasn] == self.as2org[vasn] for iasn in iasns)]
+        if DEBUG: print('Vote Rels: {}'.format(votes_rels))
+        if len(votes_rels) < 2:
+            asns = max_num(votes, key=votes.__getitem__)
+            if DEBUG: print('ASNs: {}'.format(asns))
+        else:
+            for vasn in list(votes):
+                if vasn not in votes_rels:
+                    for vr in votes_rels:
+                        if self.as2org[vr] == self.as2org[vasn]:
+                            votes[vr] += votes.pop(vasn, 0)
+            asns = max_num(votes_rels, key=votes.__getitem__)
+            othermax = max(votes, key=votes.__getitem__)
+            if DEBUG:
+                print('ASNs: {}'.format(asns))
+                print('Othermax: {}'.format(othermax))
+            if router.nexthop and votes[othermax] > votes[asns[0]] * 4:
+                utype += 3000
+                return othermax, utype
+        if len(asns) == 1:
+            asn = asns[0]
+            utype += VOTE_SINGLE
+        else:
+            if DEBUG: print('Conesizes: {}'.format({a: self.bgp.conesize[a] for a in asns}))
+            if vtype.value == VType.forwarding.value:
+                asn = max(asns, key=lambda x: (self.bgp.conesize[x], -x))
+            else:
+                asn = min(asns, key=lambda x: (self.bgp.conesize[x], -x))
+            utype += VOTE_TIE
+        return asn, utype
+
+    def annotate_router(self, router: Router):
+        isucc: Union[Interface, VRFEdge]
+        utype: int = 0
+
+        iasns: TCounter[int] = Counter(interface.asn for interface in router.interfaces if interface.asn > 0)
+        if DEBUG:
+            print('IASN: {}'.format(iasns))
+            print('Edges={}, NH={}'.format(len(router.succ), router.nexthop))
+            print('VRF={}'.format(router.vrf))
             print('MPLS?: {}'.format(any(i.mpls for i in router.interfaces)))
 
         # utype += reallocated(bdrmapit, router, edges, rupdates, succs, succ_origins)
@@ -311,8 +428,13 @@ class Bdrmapit:
         sasn_origins = defaultdict(set)
         for isucc in router.succ:
             origins = router.origins[isucc]
-            if DEBUG: print('Succ={}, ASN={}, Origins={}'.format(isucc.addr, isucc.asn, origins))
-            succ_asn = self.router_heuristics(router, isucc, origins, iasns)
+            if router.vrf:
+                if DEBUG: print('Succ={}, ASN={}'.format(isucc.node.name, self.rupdates[isucc.node]))
+                succ_asn = self.vrf_heuristics(isucc, origins, iasns)
+            else:
+                if DEBUG: print('Succ={}, ASN={}, Origins={}'.format(isucc.addr, isucc.asn, origins))
+                succ_asn = self.router_heuristics(router, isucc, origins, iasns)
+            # succ_asn = self.router_heuristics(router, isucc, origins, iasns)
             if DEBUG: print('Heuristic: {}'.format(succ_asn))
             if succ_asn > 0:
                 succs[succ_asn] += 1
@@ -343,30 +465,32 @@ class Bdrmapit:
                 return self.hidden_asn(iasns, sasn, utype, iasns)
 
             # Not sure what I'm trying to do here
-            for isucc in router.succ:
-                supdate = self.iupdates[isucc]
-                if supdate:
-                    sasn2 = supdate.asn
-                    itype = supdate.utype
-                    rasn = self.rupdates.asn(isucc.router)
-                    if sasn2 == sasn and ((rasn == sasn and itype == 1) or rasn != sasn):
-                        return sasn, utype + IUPDATE
+            if not router.vrf:
+                for isucc in router.succ:
+                    supdate = self.iupdates[isucc]
+                    if supdate:
+                        sasn2 = supdate.asn
+                        itype = supdate.utype
+                        rasn = self.rupdates.asn(isucc.router)
+                        if sasn2 == sasn and ((rasn == sasn and itype == 1) or rasn != sasn):
+                            return sasn, utype + IUPDATE
 
             # Or here
-            rasns = set()
-            for isucc in router.succ:
-                rasn = self.rupdates.asn(isucc.router)
-                rasns.add(rasn if rasn > 0 else sasn)
-            if DEBUG: print('RASNS={}, SASN={}'.format(rasns, sasn))
-            if sasn not in rasns:
-                return sasn, utype + SINGLE_SUCC_RASN
+            if not router.vrf:
+                rasns = set()
+                for isucc in router.succ:
+                    rasn = self.rupdates.asn(isucc.router)
+                    rasns.add(rasn if rasn > 0 else sasn)
+                if DEBUG: print('RASNS={}, SASN={}'.format(rasns, sasn))
+                if sasn not in rasns:
+                    return sasn, utype + SINGLE_SUCC_RASN
 
-            # Check if interface AS is customer of subsequent AS
-            for iasn in iasns:
-                if self.bgp.customer_rel(sasn, iasn):
-                    # Surely, I meant iasn and not sasn
-                    return iasn, utype + REMAINING_4
-                    # return sasn, utype + REMAINING_4
+                # Check if interface AS is customer of subsequent AS
+                for iasn in iasns:
+                    if self.bgp.customer_rel(sasn, iasn):
+                        # Surely, I meant iasn and not sasn
+                        return iasn, utype + REMAINING_4
+                        # return sasn, utype + REMAINING_4
 
         # Create votes counter and add interface AS
         votes = succs + iasns
@@ -427,7 +551,11 @@ class Bdrmapit:
     def annotate_routers(self, routers: Collection[Router], increment=100000):
         pb = Progress(len(routers), 'Annotating routers', increment=increment)
         for router in pb.iterator(routers):
-            asn, utype = self.annotate_router(router)
+            if router.vrf:
+                asn, utype = self.annotate_router_vrf(router)
+            else:
+                asn, utype = self.annotate_router(router)
+            # asn, utype = self.annotate_router(router)
             self.rupdates.add_update(router, asn, self.as2org[asn], utype)
 
     def annotate_interface(self, interface: Interface):
@@ -435,6 +563,7 @@ class Bdrmapit:
         # priority = bdrmapit.graph.iedges.priority[interface]
         if DEBUG:
             # log.debug('Edges: {}'.format(edges))
+            print('ASN: {}'.format(interface.asn))
             print('VRF: {}'.format(interface.vrf))
         votes = Counter()
         for rpred, num in edges.items():
@@ -463,18 +592,23 @@ class Bdrmapit:
 
     def annotate_interface2(self, interface: Interface):
         edges: Dict[Router, int] = interface.pred
+        total_succ = sum(len(router.succ) * num for router, num in edges.items())
         # priority = bdrmapit.graph.iedges.priority[interface]
         if DEBUG:
             # log.debug('Edges: {}'.format(edges))
+            print('ASN: {}'.format(interface.asn))
             print('VRF: {}'.format(interface.vrf))
         votes = Counter()
+        votes_tie = defaultdict(lambda: 0)
         for rpred, num in edges.items():
             asn = self.rupdates.asn(rpred)
             if DEBUG:
                 print('Router={}, RASN={}'.format(rpred.name, asn))
-            votes[asn] += num + len(rpred.succ)
+            votes[asn] += num
+            votes_tie[asn] += num * (len(rpred.succ) / total_succ)
         if DEBUG:
-            print('Votes: {}'.format(votes))
+            print('Votes: {}'.format(dict(votes)))
+            print('Votes Tie: {}'.format(dict(votes_tie)))
         if len(votes) == 1:
             return peek(votes), 1 if len(edges) > 1 else 0
         asns = max_num(votes, key=votes.__getitem__)
@@ -488,7 +622,7 @@ class Bdrmapit:
             print('Sorted Rels: {}'.format(sorted(rels, key=lambda x: (
                 x != interface.asn, -self.bgp.provider_rel(interface.asn, x), -self.bgp.conesize[x], x))))
         # asn = max(asns, key=lambda x: (x == interface.asn, bdrmapit.bgp.conesize[x], -x))
-        asn = min(rels, key=lambda x: (x != interface.asn, -self.bgp.provider_rel(interface.asn, x), -self.bgp.conesize[x], x))
+        asn = min(rels, key=lambda x: (-votes_tie[x], x != interface.asn, -self.bgp.provider_rel(interface.asn, x), -self.bgp.conesize[x], x))
         utype = 1 if len(asns) == 1 and len(edges) > 1 else 2
         return asn, utype
 
@@ -497,8 +631,8 @@ class Bdrmapit:
         for interface in pb.iterator(interfaces):
             if interface.asn >= 0:
                 # asn, utype = annotate_interface(bdrmapit, interface, rupdates, iupdates)
-                # asn, utype = self.annotate_interface(interface)
-                asn, utype = self.annotate_interface2(interface)
+                asn, utype = self.annotate_interface(interface)
+                # asn, utype = self.annotate_interface2(interface)
                 # asn, utype = self.annotate_interface_super(interface)
                 self.iupdates.add_update(interface, asn, self.as2org[asn], utype)
 
@@ -554,12 +688,6 @@ def construct_graph(addrs, nexthop, multi, dps, mpls, ip2as, as2org, nodes_file=
     for addr in pb.iterator(mpls):
         interface = interfaces[addr]
         interface.mpls = True
-    # for interface in interfaces.values():
-    #     if not interface.router:
-    #         router = Router(interface.addr)
-    #         interface.router = router
-    #         router.interfaces.append(interface)
-    #         routers[router.name] = router
     pb = Progress(len(nexthop), 'Adding nexthop edges', increment=increment)
     for addr, edges in pb.iterator(nexthop.items()):
         interface = interfaces[addr]
@@ -594,3 +722,24 @@ def construct_graph(addrs, nexthop, multi, dps, mpls, ip2as, as2org, nodes_file=
         interface = interfaces[addr]
         interface.dests.update(dests)
     return Graph(interfaces=interfaces, routers=routers)
+
+
+# def add_forwarding(graph: Graph, vrfprep: VRFPrep):
+#     for addr, edges in vrfprep.bedges:
+#         if addr in vrfprep.fnext:
+#             interface = graph.interfaces[addr]
+#             router = interface.router
+#             router.nexthop = True
+#             router.vrf = True
+#             for i in range(len(edges)):
+#                 edge = edges[i]
+#                 succ = graph.interfaces[edge]
+#                 if succ in router.succ:
+#                     origins = router.origins[succ]
+#                     origins.add(interface.asn)
+#                 else:
+#                     router.succ.add(succ)
+#                     router.origins[succ] = {interface.asn}
+#         elif addr 
+                # predcount = succ.pred.get(router, 0)
+                # succ.pred[router] = predcount + 1
