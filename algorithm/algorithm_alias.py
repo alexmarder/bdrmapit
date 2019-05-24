@@ -1,6 +1,7 @@
+import heapq as hq
 import sys
 from collections import Counter, defaultdict
-from typing import Collection, List, Set, Dict, DefaultDict, Union, Tuple, Counter as TCounter
+from typing import Collection, List, Set, Dict, Union, Counter as TCounter, Optional
 
 from traceutils.as2org.as2org import AS2Org
 from traceutils.bgp.bgp import BGP
@@ -9,12 +10,9 @@ from traceutils.progress.bar import Progress
 from traceutils.utils.utils import max_num, peek
 
 # from bdrmapit_parser.algorithm.bdrmapit import Bdrmapit
-from bdrmapit_parser.algorithm.updates_dict import Updates, UpdatesView, UpdateObj
+from bdrmapit_parser.algorithm.updates_dict import Updates
 from bdrmapit_parser.graph.construct import Graph
 from bdrmapit_parser.graph.node import Router, Interface
-import heapq as hq
-
-from vrf.prepare import VRFPrep
 from vrf.vrfedge import VRFEdge, VType
 
 DEBUG = False
@@ -113,7 +111,7 @@ class Bdrmapit:
     def test_interface(self, addr, rupdates=None, iupdates=None):
         with Debug(self, rupdates=rupdates, iupdates=iupdates):
             i = self.graph.interfaces[addr]
-            result = self.annotate_interface(i)
+            result = self.annotate_interface2(i)
         print(result)
 
     def set_dests(self, increment=100000):
@@ -300,7 +298,7 @@ class Bdrmapit:
         """
         Look for hidden AS between the interface AS and the selected AS.
         """
-        intasn: int = None
+        intasn: Optional[int] = None
         # First look for customers of interface AS who are providers of selected AS
         intersection: Set[int] = self.multi_customers(iasns) & self.bgp.providers[asn]
         # Only use if the intersection is definitive, i.e., a single AS
@@ -593,6 +591,8 @@ class Bdrmapit:
     def annotate_interface2(self, interface: Interface):
         edges: Dict[Router, int] = interface.pred
         total_succ = sum(len(router.succ) * num for router, num in edges.items())
+        if total_succ == 0:
+            total_succ = 1
         # priority = bdrmapit.graph.iedges.priority[interface]
         if DEBUG:
             # log.debug('Edges: {}'.format(edges))
@@ -631,8 +631,8 @@ class Bdrmapit:
         for interface in pb.iterator(interfaces):
             if interface.asn >= 0:
                 # asn, utype = annotate_interface(bdrmapit, interface, rupdates, iupdates)
-                asn, utype = self.annotate_interface(interface)
-                # asn, utype = self.annotate_interface2(interface)
+                # asn, utype = self.annotate_interface(interface)
+                asn, utype = self.annotate_interface2(interface)
                 # asn, utype = self.annotate_interface_super(interface)
                 self.iupdates.add_update(interface, asn, self.as2org[asn], utype)
 
@@ -722,24 +722,3 @@ def construct_graph(addrs, nexthop, multi, dps, mpls, ip2as, as2org, nodes_file=
         interface = interfaces[addr]
         interface.dests.update(dests)
     return Graph(interfaces=interfaces, routers=routers)
-
-
-# def add_forwarding(graph: Graph, vrfprep: VRFPrep):
-#     for addr, edges in vrfprep.bedges:
-#         if addr in vrfprep.fnext:
-#             interface = graph.interfaces[addr]
-#             router = interface.router
-#             router.nexthop = True
-#             router.vrf = True
-#             for i in range(len(edges)):
-#                 edge = edges[i]
-#                 succ = graph.interfaces[edge]
-#                 if succ in router.succ:
-#                     origins = router.origins[succ]
-#                     origins.add(interface.asn)
-#                 else:
-#                     router.succ.add(succ)
-#                     router.origins[succ] = {interface.asn}
-#         elif addr 
-                # predcount = succ.pred.get(router, 0)
-                # succ.pred[router] = predcount + 1
