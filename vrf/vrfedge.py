@@ -1,6 +1,4 @@
-from enum import Enum, IntEnum
-
-from algorithm.edge import Edge
+from enum import IntEnum
 
 
 class VType(IntEnum):
@@ -9,9 +7,9 @@ class VType(IntEnum):
     both = 3
 
 
-class VRFEdge(Edge):
+class VRFEdge:
     def __init__(self, node, vtype: VType):
-        super().__init__(node)
+        self.node = node
         self.vtype = vtype
 
     def update(self, vtype: VType):

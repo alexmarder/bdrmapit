@@ -5,9 +5,9 @@ from deprecated import deprecated
 from traceutils.file2.file2 import File2
 from traceutils.progress.bar import Progress
 
-from algorithm.edge import Edge
 from bdrmapit_parser.graph.construct import Graph
 from bdrmapit_parser.graph.node import Interface, Router
+from vrf.vrfedge import VRFEdge
 
 
 class Container:
@@ -89,7 +89,7 @@ class Container:
             interface.mpls = True
 
     @staticmethod
-    def add_succ(router: Router, interface: Interface, succ: Union[Edge, Interface]):
+    def add_succ(router: Router, interface: Interface, succ: Union[VRFEdge, Interface]):
         if succ in router.succ:
             origins = router.origins[succ]
             origins.add(interface.asn)
