@@ -1,15 +1,15 @@
 {
   "$schema": "schema.json",
-  "ip2as": "../ip2as/test.csv",
+  "ip2as": "../ip2as/20190101.ip2as5",
   "as2org": {
-    "as2org": "../retrieve-external/orgs/20181001.as-org2info.txt.gz"
+    "as2org": "20190101.as-org2info.txt.gz"
   },
   "as-rels": {
-    "rels": "../retrieve-external/rels/20180801.as-rel.txt.bz2",
-    "cone": "../retrieve-external/rels/20180801.ppdc-ases.txt.bz2"
+    "rels": "20190101.as-rel.txt.bz2",
+    "cone": "20190101.ppdc-ases.txt.bz2"
   },
   "warts": {
-    "files": "warts.files"
+    "files": "warts.10.files"
   },
-  "processes": 3
+  "processes": 40
 }

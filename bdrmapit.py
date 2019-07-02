@@ -13,13 +13,14 @@ from traceutils.progress.bar import Progress
 from traceutils.radix.ip2as import create_table
 
 from algorithm.algorithm_alias import Bdrmapit
+from algorithm.parse_results_container import Container
 from bdrmapit_parser.algorithm.updates_dict import UpdateObj
 from bdrmapit_parser.graph.construct import construct_graph
 from bdrmapit_parser.graph.node import Interface, Router
 from bdrmapit_parser.parser.cyparser import TraceFile, OutputType, parse_parallel, build_graph_json, parse_sequential
 
 
-def save_annotations(filename, bdrmapit: Bdrmapit):
+def save_annotations(filename, bdrmapit: Bdrmapit, rupdates=None, iupdates=None):
     if os.path.exists(filename):
         os.remove(filename)
     con = sqlite3.connect(filename)
@@ -33,13 +34,18 @@ def save_annotations(filename, bdrmapit: Bdrmapit):
         rtype INT,
         itype INT
     )''')
+    if rupdates is None:
+        rupdates = bdrmapit.rupdates
+    if iupdates is None:
+        iupdates = bdrmapit.iupdates
     interface: Interface
     values = []
-    for interface in bdrmapit.graph.interfaces.values():
+    pb = Progress(len(bdrmapit.graph.interfaces), 'Writing annotations', increment=100000)
+    for interface in pb.iterator(bdrmapit.graph.interfaces.values()):
         addr = interface.addr
         router: Router = interface.router
-        rupdate: UpdateObj = bdrmapit.rupdates[router]
-        iupdate: UpdateObj = bdrmapit.iupdates[interface]
+        rupdate: UpdateObj = rupdates[router]
+        iupdate: UpdateObj = iupdates[interface]
         if rupdate is None:
             rasn = -1
             rorg = -1
@@ -137,11 +143,12 @@ def main():
     bgp = BGP(config['as-rels']['rels'], config['as-rels']['cone'])
 
     nodes_file = config.get('aliases')
-    graph = construct_graph(results['addrs'], results['nexthop'], results['multi'], results['dps'], results['mpls'], ip2as, as2org, nodes_file=nodes_file)
+    prep = Container(ip2as, as2org, **results)
+    graph = prep.construct(nodes_file=nodes_file)
+    # graph = construct_graph(results['addrs'], results['nexthop'], results['multi'], results['dps'], results['mpls'], ip2as, as2org, nodes_file=nodes_file)
 
     bdrmapit = Bdrmapit(graph, as2org, bgp, strict=False)
     bdrmapit.set_dests()
-    bdrmapit.annotate_mpls()
     bdrmapit.annotate_lasthops()
     bdrmapit.graph_refinement(bdrmapit.routers_succ, bdrmapit.interfaces_pred, iterations=config['max_iterations'])
 

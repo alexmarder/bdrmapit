@@ -17,9 +17,9 @@ package_data = {k: ['*.pxd'] for k in extensions_names}
 
 setup(
     name="bdrmapit_parser",
-    version='0.0.1',
+    version='0.1.1',
     packages=find_packages(),
-    install_requires=['cython', 'jsonschema'],
+    install_requires=['cython', 'jsonschema', 'deprecated'],
     cmdclass={'build_ext': build_ext},
     ext_modules=cythonize(
         extensions,
