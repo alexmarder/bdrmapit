@@ -11,7 +11,7 @@ from bdrmapit_parser.graph.node import Interface, Router
 
 
 class Container:
-    def __init__(self, ip2as, as2org, addrs=None, nexthop=None, multi=None, dps=None, mpls=None):
+    def __init__(self, ip2as, as2org, addrs=None, nexthop=None, multi=None, dps=None, mpls=None, spoofing=None):
         self.ip2as = ip2as
         self.as2org = as2org
         self.addrs = addrs
@@ -19,6 +19,7 @@ class Container:
         self.multi = multi
         self.dps = dps
         self.mpls = mpls
+        self.spoofing = spoofing
         self.interfaces: Dict[str, Interface] = {}
         self.routers: Dict[str, Router] = {}
 
@@ -168,7 +169,7 @@ class Container:
         if nodes_file is not None:
             self.create_nodes(nodes_file=nodes_file)
         self.create_remaining(nodes_file is not None)
-        self.note_mpls()
+        # self.note_mpls()
         self.add_nexthop()
         self.add_multi()
         self.add_dests()

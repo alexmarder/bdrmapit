@@ -4,6 +4,7 @@ from multiprocessing.pool import Pool
 from traceutils.progress.bar import Progress
 from traceutils.radix.ip2as cimport IP2AS
 from traceutils.scamper.atlas cimport AtlasReader
+from traceutils.scamper.hop import ICMPType
 from traceutils.scamper.hop cimport Reader, Trace, Hop
 from traceutils.scamper.warts cimport WartsReader
 
@@ -27,15 +28,17 @@ cdef class ParseResults:
         self.adjs = set()
         self.dps = set()
         self.mpls = set()
+        self.spoofing = set()
 
     def __str__(self):
-        return 'Addrs {:,d} Adjs {:,d} DPs {:,d} MPLS {:,d}'.format(len(self.addrs), len(self.adjs), len(self.dps), len(self.mpls))
+        return 'Addrs {:,d} Adjs {:,d} DPs {:,d} MPLS {:,d} Spoof {:,d}'.format(len(self.addrs), len(self.adjs), len(self.dps), len(self.mpls), len(self.spoofing))
 
     cpdef void update(self, ParseResults results) except *:
         self.addrs.update(results.addrs)
         self.adjs.update(results.adjs)
         self.dps.update(results.dps)
         self.mpls.update(results.mpls)
+        self.spoofing.update(results.spoofing)
 
 
 # @cython.wraparound(False)
@@ -46,6 +49,7 @@ cpdef ParseResults parse(TraceFile tfile):
     cdef set adjs = results.adjs
     cdef set dps = results.dps
     cdef set mpls = results.mpls
+    cdef set spoofing = results.spoofing
     cdef Reader f
     cdef Trace trace
     cdef list hops
@@ -55,7 +59,7 @@ cpdef ParseResults parse(TraceFile tfile):
     cdef OutputType output_type = tfile.type
 
     if output_type == OutputType.WARTS:
-        f = WartsReader(filename)
+        f = WartsReader(filename, ping=False)
     elif output_type == OutputType.ATLAS:
         f = AtlasReader(filename)
     else:
@@ -87,7 +91,10 @@ cpdef ParseResults parse(TraceFile tfile):
                     distance = 2
                 elif distance < 1:
                     distance = -1
-                adjs.add((x.addr, y.addr, distance))
+                if y.type == ICMPType.spoofing:
+                    spoofing.add((x.addr, y.addr, distance))
+                else:
+                    adjs.add((x.addr, y.addr, distance))
     finally:
         f.close()
     return results
@@ -143,6 +150,7 @@ cpdef dict build_graph_json(ParseResults parseres, IP2AS ip2as):
             multi[x].add(y)
     results['nexthop'] = listify(nexthop)
     results['multi'] = listify(multi)
+    results['spoofing'] = list(parseres.spoofing)
     dests = defaultdict(set)
     for addr, asn in parseres.dps:
         dests[addr].add(asn)

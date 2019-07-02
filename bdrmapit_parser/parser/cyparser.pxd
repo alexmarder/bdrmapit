@@ -11,7 +11,7 @@ cdef class TraceFile:
 
 
 cdef class ParseResults:
-    cdef readonly set addrs, adjs, dps, mpls
+    cdef readonly set addrs, adjs, dps, mpls, spoofing
 
     cpdef void update(self, ParseResults results) except *;
 

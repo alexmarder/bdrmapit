@@ -6,6 +6,7 @@ from deprecated import deprecated
 from traceutils.as2org.as2org import AS2Org
 from traceutils.progress.bar import Progress
 from traceutils.radix.ip2as import IP2AS
+from traceutils.utils.net import otherside
 
 from algorithm.parse_results_container import Container
 from vrf.vrfedge import VRFEdge, VType
@@ -51,7 +52,48 @@ class VRFPrep(Container):
                 bedges[addr][succ] = VType.forwarding
             for succ in set1 & set2:
                 bedges[addr][succ] = VType.forwarding
+        bedges.default_factory = None
         return bedges
+
+    # def mark_vrfs(self, triplets):
+    #     toforward_next = defaultdict(set)
+    #     forwarding_next = defaultdict(set)
+    #     self.bnext = defaultdict(dict)
+    #     self.anext = defaultdict(set)
+    #     toforward_multi = defaultdict(set)
+    #     forwarding_multi = defaultdict(set)
+    #     self.bmulti = defaultdict(dict)
+    #     self.amulti = defaultdict(set)
+    #     self.prune = defaultdict(set)
+    #     pb = Progress(len(triplets['triplets']), 'Test', increment=500000, callback=lambda: '{:,d}'.format(len(self.prune)))
+    #     for w, x, y in pb.iterator(triplets['triplets']):
+    #         a, b, c = None, None, None
+    #         if x in self.bspace:
+    #             if not w or not self.bspace[x] or self.ip2as[w] in self.bspace[x]:
+    #                 a, b, c = w, x, y
+    #         if x in self.lasts:
+    #             a, b = w, x
+    #         if y in self.lasts:
+    #             a, b = x, y
+    #         if a and b:
+    #             if a in self.original_nexthop and b in self.original_nexthop[a]:
+    #                 toforward = toforward_next
+    #                 forwarding = forwarding_next
+    #                 aedges = self.anext
+    #             else:
+    #                 toforward = toforward_multi
+    #                 forwarding = forwarding_multi
+    #                 aedges = self.amulti
+    #             if a:
+    #                 self.prune[a].add(b)
+    #                 toforward[a].add(b)
+    #                 forwarding[b].add(a)
+    #             if c:
+    #                 self.prune[b].add(c)
+    #                 aedges[b].add(c)
+    #                 aedges[c].add(b)
+    #     self.bnext = self.merge_edgetypes(toforward_next, forwarding_next)
+    #     self.bmulti = self.merge_edgetypes(toforward_multi, forwarding_multi)
 
     def mark_vrfs(self, triplets):
         toforward_next = defaultdict(set)
@@ -65,14 +107,19 @@ class VRFPrep(Container):
         self.prune = defaultdict(set)
         pb = Progress(len(triplets['triplets']), 'Test', increment=500000, callback=lambda: '{:,d}'.format(len(self.prune)))
         for w, x, y in pb.iterator(triplets['triplets']):
+            # if not (x == '149.165.183.5' and y == '149.165.183.4'):
+            #     continue
+            # print(w, x, y)
             a, b, c = None, None, None
             if x in self.bspace:
+                # print('\t', self.ip2as[w], self.ip2as[x], self.ip2as[y])
                 if not w or not self.bspace[x] or self.ip2as[w] in self.bspace[x]:
                     a, b, c = w, x, y
-            if x in self.lasts:
+            elif x in self.lasts:
                 a, b = w, x
-            if y in self.lasts:
+            elif y in self.lasts:
                 a, b = x, y
+            # print('\t', a, b, c)
             if a and b:
                 if a in self.original_nexthop and b in self.original_nexthop[a]:
                     toforward = toforward_next
@@ -112,7 +159,7 @@ class VRFPrep(Container):
     def remove_multi(self):
         self.multi = self.remove_vrfs(self.original_multi)
 
-    def add_vrfedges(self, bedges: Dict[str, Dict[str, VType]], nexthop, increment=100000):
+    def add_vrfedges(self, bedges: Dict[str, Dict[str, VType]], nexthop, skip_exists=True, increment=100000):
         etype = 'nexthop' if nexthop else 'multi'
         pb = Progress(len(bedges), 'Adding {} forwarding edges'.format(etype), increment=increment)
         for addr, succs in pb.iterator(bedges.items()):
@@ -122,7 +169,7 @@ class VRFPrep(Container):
             router = interface.router
             if not nexthop and router.nexthop:
                 continue
-            if router.succ:
+            if skip_exists and router.succ:
                 continue
             router.nexthop = nexthop
             router.vrf = True
@@ -133,15 +180,15 @@ class VRFPrep(Container):
                 edge = VRFEdge(srouter, vtype)
                 self.add_succ(router, interface, edge)
 
-    def add_nexthop_forwarding(self, increment=100000):
+    def add_nexthop_forwarding(self, skip_exists=True, increment=100000):
         """
         Add nexthop forwarding edges.
         :param nexthop: nexthop forwarding edges
         :param increment: increment for status
         """
-        self.add_vrfedges(self.bnext, True, increment=increment)
+        self.add_vrfedges(self.bnext, True, skip_exists=skip_exists, increment=increment)
 
-    def add_pred_forwarding(self, increment=100000):
+    def add_pred_forwarding(self, skip_exists=True, increment=100000):
         """
         Add backward forwarding edges.
         :param pedges: backward forwarding edges
@@ -152,23 +199,36 @@ class VRFPrep(Container):
             if addr not in self.interfaces:
                 continue
             interface = self.interfaces[addr]
-            if interface.pred:
+            if skip_exists and interface.pred:
                 continue
             for edge in edges:
                 if edge not in self.interfaces:
                     continue
-                prouter = self.interfaces[edge].router
-                self.add_pred(interface, prouter)
+                try:
+                    if otherside(edge, 2) == addr or otherside(edge, 4) == addr:
+                        prouter = self.interfaces[edge].router
+                        self.add_pred(interface, prouter)
+                except:
+                    pass
 
-    def add_multi_forwarding(self, increment=100000):
+    def add_multi_forwarding(self, skip_exists=True, increment=100000):
         """
         Add multiple hop forwarding edges.
         :param multi: multiple hop edges
         :param increment: increment for status
         """
-        self.add_vrfedges(self.bmulti, False, increment=increment)
+        self.add_vrfedges(self.bmulti, False, skip_exists=skip_exists, increment=increment)
 
-    def construct(self, nodes_file=None):
+    def reset(self, keep_nodes=True):
+        pb = Progress(len(self.routers), 'Resetting router edges', increment=1000000)
+        for router in pb.iterator(self.routers.values()):
+            router.succ.clear()
+            router.origins.clear()
+        pb = Progress(len(self.interfaces), 'Resetting interface edges', increment=1000000)
+        for interface in pb.iterator(self.interfaces.values()):
+            interface.pred.clear()
+
+    def construct(self, nodes_file=None, skip_exists=True, skip_nodes=False, skip_dests=False, skip_graph=False):
         """
         Construct the graph from scratch.
         :param addrs: addresses seen in the dataset
@@ -178,14 +238,17 @@ class VRFPrep(Container):
         :param nodes_file: alias resolution dataset
         :return: the graph
         """
-        if nodes_file is not None:
-            self.create_nodes(nodes_file=nodes_file)
-        self.create_remaining(nodes_file is not None)
+        if not skip_nodes:
+            if nodes_file is not None:
+                self.create_nodes(nodes_file=nodes_file)
+            self.create_remaining(nodes_file is not None)
         # self.note_mpls()
         self.add_nexthop()
-        self.add_nexthop_forwarding()
-        self.add_pred_forwarding()
+        self.add_nexthop_forwarding(skip_exists=skip_exists)
+        self.add_pred_forwarding(skip_exists=skip_exists)
         self.add_multi()
-        self.add_multi_forwarding()
-        self.add_dests()
-        return self.create_graph()
+        self.add_multi_forwarding(skip_exists=skip_exists)
+        if not skip_dests:
+            self.add_dests()
+        if not skip_graph:
+            return self.create_graph()
