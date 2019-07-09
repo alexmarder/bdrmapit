@@ -116,9 +116,12 @@ class VRFPrep(Container):
                 if not w or not self.bspace[x] or self.ip2as[w] in self.bspace[x]:
                     a, b, c = w, x, y
             elif x in self.lasts:
-                a, b = w, x
+                if not w or not self.lasts[x] or self.ip2as[w] in self.lasts[x]:
+                    # print('huh?', w, x, y)
+                    a, b, c = w, x, y
             elif y in self.lasts:
-                a, b = x, y
+                if not x or not self.lasts[y] or self.ip2as[x] in self.lasts[y]:
+                    a, b = x, y
             # print('\t', a, b, c)
             if a and b:
                 if a in self.original_nexthop and b in self.original_nexthop[a]:

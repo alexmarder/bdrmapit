@@ -115,8 +115,9 @@ class Container:
             router.nexthop = True
             for edge in edges:
                 succ = self.interfaces[edge]
-                self.add_succ(router, interface, succ)
-                self.add_pred(succ, router)
+                if succ.router != router:
+                    self.add_succ(router, interface, succ)
+                    self.add_pred(succ, router)
 
     def add_multi(self, increment=100000):
         """
@@ -132,7 +133,8 @@ class Container:
                 edges = self.multi[addr]
                 for edge in edges:
                     succ = self.interfaces[edge]
-                    self.add_succ(router, interface, succ)
+                    if succ.router != router:
+                        self.add_succ(router, interface, succ)
 
     def add_dests(self, increment=100000):
         """
