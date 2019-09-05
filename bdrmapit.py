@@ -63,14 +63,14 @@ def save_annotations(filename, bdrmapit: Bdrmapit, rupdates=None, iupdates=None,
             itype = iupdate.utype
         row = {'addr': addr, 'router': router.name, 'asn': rasn, 'org': rorg, 'conn_asn': iasn, 'conn_org': iorg, 'rtype': rtype, 'itype': itype}
         values.append(row)
-    if container is not None:
-        echos_cycles = (container.echos | container.cycles) - bdrmapit.graph.interfaces.keys()
-        pb = Progress(len(echos_cycles), 'Adding echos and cycles', increment=1000000)
-        for addr in pb.iterator(echos_cycles):
-            asn = container.ip2as[addr]
-            org = container.as2org[asn]
-            row = {'addr': addr, 'router': addr, 'asn': asn, 'org': org, 'conn_asn': asn, 'conn_org': org, 'rtype': -1, 'itype': -1}
-            values.append(row)
+    # if container is not None:
+    #     echos_cycles = (container.echos | container.cycles) - bdrmapit.graph.interfaces.keys()
+    #     pb = Progress(len(echos_cycles), 'Adding echos and cycles', increment=1000000)
+    #     for addr in pb.iterator(echos_cycles):
+    #         asn = container.ip2as[addr]
+    #         org = container.as2org[asn]
+    #         row = {'addr': addr, 'router': addr, 'asn': asn, 'org': org, 'conn_asn': asn, 'conn_org': org, 'rtype': -1, 'itype': -1}
+    #         values.append(row)
     con.executemany('insert into annotation (addr, router, asn, org, conn_asn, conn_org, rtype, itype) values (:addr, :router, :asn, :org, :conn_asn, :conn_org, :rtype, :itype)', values)
     con.commit()
 
