@@ -1,11 +1,9 @@
-import heapq as hq
 import sys
 from collections import Counter, defaultdict
 from typing import Collection, List, Set, Dict, Union, Counter as TCounter, Optional
 
 from traceutils.as2org.as2org import AS2Org
 from traceutils.bgp.bgp import BGP
-from traceutils.file2.file2 import File2
 from traceutils.progress.bar import Progress
 from traceutils.utils.utils import max_num, peek
 
@@ -47,17 +45,18 @@ HIDDEN_NOINTER = 200
 
 class Debug:
 
-    def __init__(self, bdrmapit=None, rupdates=None, iupdates=None):
+    def __init__(self, bdrmapit=None, rupdates=None, iupdates=None, verbose=True):
         self.old = DEBUG
         self.bdrmapit = bdrmapit
         self.rupdates = rupdates
         self.iupdates = iupdates
         self.old_rupdates = None
         self.old_iupdates = None
+        self.verbose = verbose
 
     def __enter__(self):
         global DEBUG
-        DEBUG = True
+        DEBUG = self.verbose
         if self.bdrmapit is not None:
             if self.rupdates is not None:
                 self.old_rupdates, self.bdrmapit.rupdates = self.bdrmapit.rupdates, self.rupdates
@@ -104,6 +103,10 @@ class Bdrmapit:
         self.strict = strict
 
     def test_last(self, nid, rupdates=None, iupdates=None):
+        if rupdates is None:
+            rupdates = Updates()
+        if iupdates is None:
+            iupdates = Updates()
         with Debug(self, rupdates=rupdates, iupdates=iupdates):
             if not isinstance(nid, Router):
                 r: Router = self.graph.routers[nid]
@@ -204,6 +207,26 @@ class Bdrmapit:
         # Select the most frequent origin AS, break ties with smallest customer cone size
         return max(iasns, key=lambda x: (iasns[x], -self.bgp.conesize[x], x)), 5
 
+    def annotate_lasthop_norels(self, router, dests, iasns):
+        if self.strict:
+            return max(iasns, key=lambda x: (iasns[x], -self.bgp.conesize[x], x)), NODEST
+        if iasns:
+            if DEBUG: print('IASNs: {}'.format(iasns))
+            if DEBUG:
+                print('Providers: {}'.format(self.multi_providers(dests)))
+            intersection = self.multi_providers(dests) & self.multi_customers(iasns)
+            if len(intersection) == 1:
+                if DEBUG: print('Inter Cust: {}'.format(intersection))
+                return peek(intersection), 10000
+            # intersection = self.multi_providers(dests) & self.multi_peers(iasns)
+            # if len(intersection) == 1:
+            #     return peek(intersection), 30000
+            intersection = self.multi_customers(dests) & self.multi_providers(iasns)
+            if len(intersection) == 1:
+                return peek(intersection), 20000
+        asn = min(dests, key=lambda x: (self.bgp.conesize[x], -x))
+        return asn, MISSING_NOINTER
+
     def annotate_lasthop(self, router: Router):
         dests = router.dests
         if DEBUG: print('Dests: {}'.format(dests))
@@ -223,20 +246,10 @@ class Bdrmapit:
         if DEBUG: print('Rels: {}'.format(rels))
         if rels:
             # Select overlapping or relationship AS with largest customer cone
-            return max(rels, key=lambda x: (len(self.bgp.cone[x] & dests), -x)), HEAPED
+            return min(rels, key=lambda x: (self.bgp.conesize[x], -x)), HEAPED
+            # return max(rels, key=lambda x: (len(self.bgp.cone[x] & dests), -x)), HEAPED
         # No relationship between any origin AS and any destination AS
-        asn = min(dests, key=lambda x: (self.bgp.conesize[x], -x))
-        if iasns:
-            intersection = self.bgp.providers[asn] & self.multi_customers(iasns)
-            if len(intersection) == 1:
-                if DEBUG: print('Inter Cust: {}'.format(intersection))
-                return peek(intersection), MISSING_INTER
-            intersection = self.bgp.customers[asn] & self.multi_providers(iasns)
-            if len(intersection) == 1:
-                return peek(intersection), MISSING_INTER
-            if self.strict:
-                return max(iasns, key=lambda x: (iasns[x], -self.bgp.conesize[x], x)), NODEST
-        return asn, MISSING_NOINTER
+        return self.annotate_lasthop_norels(router, dests, iasns)
 
     def annotate_lasthops(self, routers=None):
         if routers is None:
