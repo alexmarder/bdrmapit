@@ -29,9 +29,11 @@ cdef class ParseResults:
         self.dps = set()
         self.mpls = set()
         self.spoofing = set()
+        self.echos = set()
+        self.cycles = set()
 
     def __str__(self):
-        return 'Addrs {:,d} Adjs {:,d} DPs {:,d} MPLS {:,d} Spoof {:,d}'.format(len(self.addrs), len(self.adjs), len(self.dps), len(self.mpls), len(self.spoofing))
+        return 'Addrs {:,d} Adjs {:,d} DPs {:,d} MPLS {:,d} S {:,d} E {:,d} C {:,d}'.format(len(self.addrs), len(self.adjs), len(self.dps), len(self.mpls), len(self.spoofing), len(self.echos), len(self.cycles))
 
     cpdef void update(self, ParseResults results) except *:
         self.addrs.update(results.addrs)
@@ -39,10 +41,10 @@ cdef class ParseResults:
         self.dps.update(results.dps)
         self.mpls.update(results.mpls)
         self.spoofing.update(results.spoofing)
+        self.echos.update(results.echos)
+        self.cycles.update(results.cycles)
 
 
-# @cython.wraparound(False)
-# @cython.boundscheck(False)
 cpdef ParseResults parse(TraceFile tfile):
     cdef ParseResults results = ParseResults()
     cdef set addrs = results.addrs
@@ -50,6 +52,8 @@ cpdef ParseResults parse(TraceFile tfile):
     cdef set dps = results.dps
     cdef set mpls = results.mpls
     cdef set spoofing = results.spoofing
+    cdef set echos = results.echos
+    cdef set cycles = results.cycles
     cdef Reader f
     cdef Trace trace
     cdef list hops
@@ -69,7 +73,8 @@ cpdef ParseResults parse(TraceFile tfile):
         for trace in f:
             trace.prune_dups()
             trace.prune_loops()
-            # trace.set_packed()
+            if trace.loop:
+                cycles.update(trace.loop)
             hops = [h for h in trace.hops if _ip2as[h.addr] != -1]
             dst_asn = _ip2as.asn(trace.dst)
             for i in range(len(hops)):
@@ -83,6 +88,7 @@ cpdef ParseResults parse(TraceFile tfile):
                     break
                 y = hops[i+1]
                 if y.icmp_type == 0:
+                    echos.add(y.addr)
                     break
                 distance = y.probe_ttl - x.probe_ttl
                 if y.icmp_q_ttl == 0:
@@ -155,4 +161,6 @@ cpdef dict build_graph_json(ParseResults parseres, IP2AS ip2as):
     for addr, asn in parseres.dps:
         dests[addr].add(asn)
     results['dps'] = listify(dests)
+    results['echos'] = list(parseres.echos)
+    results['cycles'] = list(parseres.cycles)
     return results

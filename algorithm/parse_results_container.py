@@ -11,7 +11,7 @@ from vrf.vrfedge import VRFEdge
 
 
 class Container:
-    def __init__(self, ip2as, as2org, addrs=None, nexthop=None, multi=None, dps=None, mpls=None, spoofing=None):
+    def __init__(self, ip2as, as2org, addrs=None, nexthop=None, multi=None, dps=None, mpls=None, spoofing=None, echos=None, cycles=None):
         self.ip2as = ip2as
         self.as2org = as2org
         self.addrs = addrs
@@ -20,6 +20,8 @@ class Container:
         self.dps = dps
         self.mpls = mpls
         self.spoofing = spoofing
+        self.echos = echos
+        self.cycles = cycles
         self.interfaces: Dict[str, Interface] = {}
         self.routers: Dict[str, Router] = {}
 
@@ -45,6 +47,8 @@ class Container:
             # Add interface to router
             router.interfaces.append(interface)
             self.routers[router.name] = router
+            # interface.echo = echo
+            # interface.cycle = cycle
 
     def create_nodes(self, nodes_file, increment=100000):
         """
@@ -75,18 +79,6 @@ class Container:
             if not aliases or addr not in self.interfaces:
                 router = Router(addr)
                 self.create_node(addr, router)
-
-    @deprecated
-    def note_mpls(self, increment=100000):
-        """
-        Note MPLS interfaces.
-        :param mpls: MPLS interface addresses
-        :param increment: increment for status
-        """
-        pb = Progress(len(self.mpls), 'Noting MPLS interfaces', increment=increment)
-        for addr in pb.iterator(self.mpls):
-            interface = self.interfaces[addr]
-            interface.mpls = True
 
     @staticmethod
     def add_succ(router: Router, interface: Interface, succ: Union[VRFEdge, Interface]):
@@ -158,6 +150,36 @@ class Container:
         self.interfaces = {}
         self.routers = {}
 
+    def add_echos(self, increment=1000000):
+        echos = 0
+        pb = Progress(len(self.echos), 'Adding and marking echos', increment=increment, callback=lambda: '{:,d}'.format(echos))
+        for addr in pb.iterator(self.echos):
+            if addr in self.interfaces:
+                interface = self.interfaces[addr]
+                if not interface.dests:
+                    interface.echo = True
+                    if all(i.echo for i in interface.router.interfaces):
+                        interface.router.echo = True
+            else:
+                router = Router(addr)
+                router.echo = True
+                self.create_node(addr, router, echo=True)
+
+    def add_cycles(self, increment=1000000):
+        echos = 0
+        pb = Progress(len(self.cycles), 'Adding and marking cycles', increment=increment, callback=lambda: '{:,d}'.format(echos))
+        for addr in pb.iterator(self.echos):
+            if addr in self.interfaces:
+                interface = self.interfaces[addr]
+                if not interface.dests:
+                    interface.cycle = True
+                    if all(i.cycle for i in interface.router.interfaces):
+                        interface.router.echo = True
+            else:
+                router = Router(addr)
+                router.cycle = True
+                self.create_node(addr, router, cycle=True)
+
     def construct(self, nodes_file=None):
         """
         Construct the graph from scratch.
@@ -171,8 +193,9 @@ class Container:
         if nodes_file is not None:
             self.create_nodes(nodes_file=nodes_file)
         self.create_remaining(nodes_file is not None)
-        # self.note_mpls()
         self.add_nexthop()
         self.add_multi()
         self.add_dests()
+        # self.add_echos()
+        # self.add_cycles()
         return self.create_graph()
