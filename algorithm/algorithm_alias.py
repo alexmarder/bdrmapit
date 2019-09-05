@@ -105,7 +105,10 @@ class Bdrmapit:
 
     def test_last(self, nid, rupdates=None, iupdates=None):
         with Debug(self, rupdates=rupdates, iupdates=iupdates):
-            r: Router = self.graph.routers[nid]
+            if not isinstance(nid, Router):
+                r: Router = self.graph.routers[nid]
+            else:
+                r = nid
             result = self.annotate_lasthop(r)
         print(result)
 
@@ -125,33 +128,28 @@ class Bdrmapit:
         print(result)
 
     def set_dests(self, increment=1000000):
+        """
+        Set destination AS sets for each router, and remove potential relocated prefixes for last hop interfaces.
+        :param increment: status increment
+        """
         modified = 0
         pb = Progress(len(self.graph.routers), 'Setting destinations', increment=increment, callback=lambda: 'Modified {:,d}'.format(modified))
         for router in pb.iterator(self.graph.routers.values()):
             for interface in router.interfaces:
+                # Copy destination ASes to avoid messing up original
                 idests: Set[int] = set(interface.dests)
+                # If last hop, interface has non-IXP AS mapping, and interface has destination ASes
                 if not router.succ and idests and interface.asn > 0:
-                    if idests:
-                        if len(idests) == 2 and interface.asn in idests:
-                            asn = peek(idests - {interface.asn})
-                            if self.bgp.conesize[interface.asn] > self.bgp.conesize[asn] and self.bgp.conesize[asn] < 5:
-                                modified += 1
-                                idests.discard(interface.asn)
+                    origin = interface.asn
+                    # Interface must have exactly 2 destination ASes and one must be its origin AS
+                    if len(idests) == 2 and origin in idests:
+                        other_asn = peek(idests - {origin})  # other AS
+                        # If other AS is likely customer of interface origin AS, and it's a small AS
+                        if self.bgp.conesize[origin] > self.bgp.conesize[other_asn] and self.bgp.conesize[other_asn] < 5:
+                            idests.discard(origin)
+                            modified += 1
+                # Add all remaining destination ASes to the router destination AS set
                 router.dests.update(idests)
-
-    # def set_dests(self, increment=1000000):
-    #     # pb = Progress(len(self.graph.interfaces), 'Modifying interface dests', increment=increment)
-    #     # for interface in pb.iterator(self.graph.interfaces.values()):
-    #     #     idests: Set[int] = interface.dests
-    #     #     if idests:
-    #     #         orgs = {self.as2org[a] for a in idests}
-    #     #         if len(orgs) == 2 and interface.asn in idests:
-    #     #             if max(idests, key=lambda x: (self.bgp.conesize[x], -x)) == interface.asn:
-    #     #                 idests.discard(interface.asn)
-    #     pb = Progress(len(self.graph.routers), 'Setting destinations', increment=increment)
-    #     for router in pb.iterator(self.graph.routers.values()):
-    #         for interface in router.interfaces:
-    #             router.dests.update(interface.dests)
 
     def multi_customers(self, asns):
         return {customer for asn in asns for customer in self.bgp.customers[asn]}
@@ -168,16 +166,43 @@ class Bdrmapit:
                 return True
         return False
 
-    # def heaptest(self, rdests: Set[int], interfaces: List[Interface]):
-    #     heap = []
-    #     for a in rdests:
-    #         hq.heappush(heap, (self.bgp.conesize[a], -a, a))
-    #     original_min = heap[0][-1]
-    #     while heap:
-    #         dest = hq.heappop(heap)[-1]
-    #         if any(interface.asn == dest or self.bgp.rel(interface.asn, dest) for interface in interfaces):
-    #             return dest
-    #     return original_min
+    def annotate_lasthop_nodests(self, router, dests, iasns):
+        if DEBUG: print('No dests')
+        # No interface origin ASes. Only cause is the addresses had no matching prefix.
+        if len(iasns) == 0:
+            # No AS mapping possible with current method.
+            # TODO: Might be worth looking backward for mapping. Need to investigate how common.
+            return -1, 1
+        # Single router origin AS, so select it.
+        elif len(iasns) == 1:
+            return peek(iasns), 2
+        # Collect ASes that have a relationship to all other ASes.
+        allrels = {iasn for iasn in iasns if all(self.as2org[iasn] == self.as2org[oasn] or self.bgp.rel(iasn, oasn) for oasn in iasns if iasn != oasn)}
+        if allrels:
+            if DEBUG:
+                for asn in allrels:
+                    print('{}: {}'.format(asn, iasns[asn]))
+            # Select AS (with relationship to all others) with the most votes, then smallest customer cone.
+            return max(allrels, key=lambda x: (iasns[x], -self.bgp.conesize[x], x)), 3
+        # No AS is directly connected (according to BGP) with every other origin AS.
+        # Try to select a single AS that is a customer of all origin ASes.
+        hidden = []  # List of customer sets
+        for iasn in iasns:
+            # rels = self.bgp.providers[iasn] | self.bgp.peers[iasn] | self.bgp.customers[iasn]
+            rels = self.bgp.customers[iasn]
+            hidden.append(rels)
+        # Take intersection of all customer sets
+        intersection: Set[int] = hidden[0]
+        for rels in hidden[1:]:
+            intersection.intersection_update(rels)
+        # If single AS intersection, select it
+        if len(intersection) == 1:
+            return peek(intersection), 4
+        if DEBUG:
+            for iasn in iasns:
+                print('{}: {}'.format(iasn, iasns[iasn]))
+        # Select the most frequent origin AS, break ties with smallest customer cone size
+        return max(iasns, key=lambda x: (iasns[x], -self.bgp.conesize[x], x)), 5
 
     def annotate_lasthop(self, router: Router):
         dests = router.dests
@@ -185,17 +210,7 @@ class Bdrmapit:
         iasns = Counter(interface.asn for interface in router.interfaces if interface.asn > 0)
         # No destination ASes
         if len(router.dests) == 0 or all(dest <= 0 for dest in router.dests):
-            if DEBUG: print('No dests')
-            if len(iasns) == 0:
-                return -1, NODEST
-            return max(iasns, key=lambda x: (iasns[x], -self.bgp.conesize[x], x)), NODEST
-        # Check for reallocated prefix
-        # remaining = dests - iasns.keys()
-        # overlap = iasns.keys() & dests
-        # if len(remaining) == 1 and overlap:
-        #     asn = peek(remaining)
-        #     if self.bgp.conesize[asn] < 5 <= min(self.bgp.conesize[iasn] for iasn in overlap):
-        #         dests = remaining
+            return self.annotate_lasthop_nodests(router, dests, iasns)
         # Use overlapping ASes if available
         overlap = iasns.keys() & dests
         if DEBUG: print('Dest IASN intersection: {}'.format(overlap))
@@ -221,64 +236,13 @@ class Bdrmapit:
                 return max(iasns, key=lambda x: (iasns[x], -self.bgp.conesize[x], x)), NODEST
         return asn, MISSING_NOINTER
 
-    # def annotate_lasthop(self, router: Router):
-    #     if DEBUG: print('Dests: {}'.format(router.dests))
-    #     interfaces = router.interfaces
-    #     iasns = Counter(interface.asn for interface in interfaces)
-    # 
-    #     # If no destination ASes
-    #     if len(router.dests) == 0 or all(dest <= 0 for dest in router.dests):
-    #         if len(iasns) == 0:
-    #             return -1, NODEST
-    #         return max(iasns, key=lambda x: (iasns[x], -self.bgp.conesize[x], x)), NODEST
-    # 
-    #     # Check for single organization
-    #     rorgs = {self.as2org[d] for d in router.dests}
-    #     if len(rorgs) == 1:
-    #         if DEBUG: print('Single Org: {}'.format(router.dests))
-    #         dest = peek(router.dests)
-    #         utype = SINGLE
-    # 
-    #     # Multiple destination organization
-    #     else:
-    #         if DEBUG: print('IASNs: {}'.format(iasns))
-    #         dest = self.heaptest(router.dests, interfaces)
-    #         utype = HEAPED
-    # 
-    #     # If the interface AS has no relationship to the selected AS, check for hidden AS
-    #     if all(iasn > 0 and iasn != dest and not self.bgp.rel(iasn, dest) for iasn in iasns):
-    #         if DEBUG: print('No Rel: {}-{}'.format(iasns, dest))
-    #         intersection = self.bgp.providers[dest] & self.multi_customers(iasns)
-    #         # Only use intersection AS if it is definitive
-    #         if len(intersection) == 1:
-    #             dest = peek(intersection)
-    #             return dest, MISSING_INTER
-    #         # Otherwise, use the interface AS
-    #         else:
-    #             if DEBUG: print(self.bgp.providers[dest] & self.multi_peers(iasns))
-    #             if self.strict:
-    #                 return max(iasns, key=lambda x: (iasns[x], -self.bgp.conesize[x], x)), MISSING_NOINTER
-    #             else:
-    #                 return dest, MISSING_NOINTER
-    #     return dest, utype
-
     def annotate_lasthops(self, routers=None):
         if routers is None:
             routers = self.lasthops
-        ifs = 0
-        ds = 0
-        pb = Progress(len(routers), message='Last Hops', increment=100000, callback=lambda: 'Is {:,d} Ds {:,d} Total {:,d}'.format(ifs, ds, ifs+ds))
+        pb = Progress(len(routers), message='Last Hops', increment=100000)
         for router in pb.iterator(routers):
             dest, utype = self.annotate_lasthop(router)
-            if utype == NODEST:
-                ifs += 1
-            else:
-                ds += 1
-            try:
-                self.rupdates.add_update_direct(router, dest, self.as2org[dest], utype)
-            except:
-                print(dest, utype)
-                raise
+            self.rupdates.add_update_direct(router, dest, self.as2org[dest], utype)
 
     def router_heuristics(self, router: Router, isucc: Interface, origins: Set[int], iasns: TCounter[int]):
         rsucc: Router = isucc.router
@@ -302,17 +266,13 @@ class Bdrmapit:
 
         # If subsequent interface is an IXP interface, use interface AS
         if isucc.asn <= -100:
-            # if any(iasn > 0 for iasn in origins):
-            #     return max(origins, key=lambda x: (iasns[x], self.bgp.conesize[x], -x))
             return -1
 
-        # If subsequent interface AS is the same as the interface AS, use it
-        # if isucc.asn in origins:
-        #     return isucc.asn
-
+        third = False
         if not any(isucc.org == self.as2org[iasn] for iasn in origins):
             # If subsequent router AS is different from the subsequent interface AS
-            if rsucc_asn > 0 and rsucc_asn != succ_asn and not any(succ_org == self.as2org[iasn] for iasn in origins):
+            rsucc_org = self.as2org[rsucc_asn]
+            if rsucc_asn > 0 and rsucc_org != succ_org and not any(succ_org == self.as2org[iasn] for iasn in origins):
                 # print(succ_org, {self.as2org[iasn] for iasn in origins})
                 if DEBUG: print('\tThird party: Router={}, RASN={}'.format(rsucc.name, rsucc_asn))
                 if rsucc_asn in origins or self.any_rels(rsucc_asn, origins):
@@ -325,11 +285,11 @@ class Bdrmapit:
                     # customer cone for the router's AS, use the router's AS
                     if succ_asn not in router.dests:
                         if s_conesize <= r_conesize:
-                            return rsucc_asn
+                            third = True
                     # If the subsequent AS has a relationship with the router AS, but not with any origin AS,
                     # use the router AS
                     elif self.bgp.rel(succ_asn, rsucc_asn) and not self.any_rels(succ_asn, origins):
-                        return rsucc_asn
+                        third = True
 
             # When there is no relationship between router ASes and subsequent interface AS,
             # check if relationship between router ASes and subsequent router AS when they are the same org
@@ -337,7 +297,17 @@ class Bdrmapit:
                 if not any(self.bgp.rel(iasn, succ_asn) for iasn in iasns):
                     if any(self.bgp.rel(iasn, rsucc_asn) for iasn in iasns):
                         if DEBUG: print('Testing')
-                        return rsucc_asn
+                        # return rsucc_asn
+                        third = True
+        if third:
+            rsucc_cone = self.bgp.cone[rsucc_asn]
+            if DEBUG:
+                print('\tDests: {}'.format(router.dests))
+                print('\tCone: {}'.format(rsucc_cone))
+            if all(dasn == rsucc_asn or dasn in rsucc_cone for dasn in router.dests):
+                return rsucc_asn
+            return -1
+
         if succ_asn <= 0 or (0 < rsucc_asn != isucc.asn):
             if DEBUG:
                 print('ugh')
@@ -348,8 +318,6 @@ class Bdrmapit:
         rsucc: Router = edge.node
         vtype = edge.vtype
         if DEBUG: print('VType={}'.format(vtype.name))
-        # if any(iface.asn in origins for iface in rsucc.interfaces):
-        #     rsucc_asn
         for iface in rsucc.interfaces:
             if iface.asn in origins:
                 return iface.asn
@@ -489,12 +457,6 @@ class Bdrmapit:
         # Deal specially with cases where there is only a single subsequent AS
         if iasns and len(succs) == 1 or len({self.as2org[sasn] for sasn in succs}) == 1:
             sasn = peek(succs) if len(succs) == 1 else max(succs, key=lambda x: (self.bgp.conesize[x], -x))
-            # if not iasns:
-            #     return sasn, utype + SINGLE_SUCC_ORIGIN
-
-            # Subsequent AS = Interface AS
-            # if sasn in sasn_origins[sasn]:
-            #     return sasn, utype + SINGLE_SUCC_ORIGIN
 
             # Subsequent AS is customer of interface AS
             if sasn not in sasn_origins[sasn] and sasn in self.multi_customers(sasn_origins[sasn]):
@@ -567,9 +529,7 @@ class Bdrmapit:
 
     def annotate_interface(self, interface: Interface):
         edges: Dict[Router, int] = interface.pred
-        # priority = bdrmapit.graph.iedges.priority[interface]
         if DEBUG:
-            # log.debug('Edges: {}'.format(edges))
             print('ASN: {}'.format(interface.asn))
             print('VRF: {}'.format(interface.vrf))
         votes = Counter()
@@ -597,52 +557,11 @@ class Bdrmapit:
         utype = 1 if len(asns) == 1 and len(edges) > 1 else 2
         return asn, utype
 
-    def annotate_interface2(self, interface: Interface):
-        edges: Dict[Router, int] = interface.pred
-        total_succ = sum(len(router.succ) * num for router, num in edges.items())
-        if total_succ == 0:
-            total_succ = 1
-        # priority = bdrmapit.graph.iedges.priority[interface]
-        if DEBUG:
-            # log.debug('Edges: {}'.format(edges))
-            print('ASN: {}'.format(interface.asn))
-            print('VRF: {}'.format(interface.vrf))
-        votes = Counter()
-        votes_tie = defaultdict(lambda: 0)
-        for rpred, num in edges.items():
-            asn = self.rupdates.asn(rpred)
-            if DEBUG:
-                print('Router={}, RASN={}'.format(rpred.name, asn))
-            votes[asn] += num
-            votes_tie[asn] += num * (len(rpred.succ) / total_succ)
-        if DEBUG:
-            print('Votes: {}'.format(dict(votes)))
-            print('Votes Tie: {}'.format(dict(votes_tie)))
-        if len(votes) == 1:
-            return peek(votes), 1 if len(edges) > 1 else 0
-        asns = max_num(votes, key=votes.__getitem__)
-        if DEBUG:
-            print('MaxNum: {}'.format(asns))
-        rels = [asn for asn in asns if interface.asn == asn or self.bgp.rel(interface.asn, asn)]
-        if not rels:
-            rels = asns
-        if DEBUG:
-            print('Rels: {}'.format(rels))
-            print('Sorted Rels: {}'.format(sorted(rels, key=lambda x: (
-                x != interface.asn, -self.bgp.provider_rel(interface.asn, x), -self.bgp.conesize[x], x))))
-        # asn = max(asns, key=lambda x: (x == interface.asn, bdrmapit.bgp.conesize[x], -x))
-        asn = min(rels, key=lambda x: (-votes_tie[x], x != interface.asn, -self.bgp.provider_rel(interface.asn, x), -self.bgp.conesize[x], x))
-        utype = 1 if len(asns) == 1 and len(edges) > 1 else 2
-        return asn, utype
-
     def annotate_interfaces(self, interfaces: Collection[Interface]):
         pb = Progress(len(interfaces), 'Adding links', increment=100000)
         for interface in pb.iterator(interfaces):
             if interface.asn >= 0:
-                # asn, utype = annotate_interface(bdrmapit, interface, rupdates, iupdates)
                 asn, utype = self.annotate_interface(interface)
-                # asn, utype = self.annotate_interface2(interface)
-                # asn, utype = self.annotate_interface_super(interface)
                 self.iupdates.add_update(interface, asn, self.as2org[asn], utype)
 
     def graph_refinement(self, routers: List[Router], interfaces: List[Interface], iterations=-1, clear=True, vrfrouters: List[Router] = None):
@@ -669,75 +588,3 @@ class Bdrmapit:
         iasn = min(iasns, key=lambda x: (self.bgp.conesize[x], -x))
         conesize = self.bgp.conesize[iasn]
         return -nedges, conesize, -iasn
-
-
-def construct_graph(addrs, nexthop, multi, dps, mpls, ip2as, as2org, nodes_file=None, increment=100000):
-    interfaces = {}
-    routers = {}
-    if nodes_file is not None:
-        pb = Progress(message='Creating nodes', increment=increment)
-        with File2(nodes_file, 'rt') as f:
-            for line in pb.iterator(f):
-                if line[0] != '#':
-                    _, nid, *naddrs = line.split()
-                    nid = nid[:-1]
-                    router = Router(nid)
-                    routers[router.name] = router
-                    for addr in naddrs:
-                        asn = ip2as.asn(addr)
-                        if asn > 0 or asn <= -100:
-                            interface = Interface(addr, asn, as2org[asn])
-                            interfaces[addr] = interface
-                            interface.router = router
-                            router.interfaces.append(interface)
-                            interface.router = router
-                            router.interfaces.append(interface)
-                            routers[router.name] = router
-    pb = Progress(len(addrs), 'Creating remaining routers and interfaces', increment=increment)
-    for addr in pb.iterator(addrs):
-        if nodes_file is None or addr not in interfaces:
-            asn = ip2as.asn(addr)
-            interface = Interface(addr, asn, as2org[asn])
-            interfaces[addr] = interface
-            router = Router(interface.addr)
-            interface.router = router
-            router.interfaces.append(interface)
-            routers[router.name] = router
-    pb = Progress(len(mpls), 'Noting MPLS interfaces', increment=increment)
-    for addr in pb.iterator(mpls):
-        interface = interfaces[addr]
-        interface.mpls = True
-    pb = Progress(len(nexthop), 'Adding nexthop edges', increment=increment)
-    for addr, edges in pb.iterator(nexthop.items()):
-        interface = interfaces[addr]
-        router = interface.router
-        router.nexthop = True
-        for i in range(len(edges)):
-            edge = edges[i]
-            succ = interfaces[edge]
-            if succ in router.succ:
-                origins = router.origins[succ]
-                origins.add(interface.asn)
-            else:
-                router.succ.add(succ)
-                router.origins[succ] = {interface.asn}
-            predcount = succ.pred.get(router, 0)
-            succ.pred[router] = predcount + 1
-    pb = Progress(len(multi), 'Adding multihop edges', increment=increment)
-    for addr in pb.iterator(multi):
-        interface = interfaces[addr]
-        router = interface.router
-        if not router.nexthop:
-            edges = multi[addr]
-            for edge in edges:
-                succ = interfaces[edge]
-                if succ in router.succ:
-                    router.origins[succ].add(interface.asn)
-                else:
-                    router.succ.add(succ)
-                    router.origins[succ] = {interface.asn}
-    pb = Progress(len(dps), 'Adding destination ASes', increment=increment)
-    for addr, dests in pb.iterator(dps.items()):
-        interface = interfaces[addr]
-        interface.dests.update(dests)
-    return Graph(interfaces=interfaces, routers=routers)

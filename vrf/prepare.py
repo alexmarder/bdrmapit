@@ -253,5 +253,7 @@ class VRFPrep(Container):
         self.add_multi_forwarding(skip_exists=skip_exists)
         if not skip_dests:
             self.add_dests()
+        self.add_echos()
+        self.add_cycles()
         if not skip_graph:
             return self.create_graph()
