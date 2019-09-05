@@ -215,14 +215,16 @@ class Bdrmapit:
         overlap = iasns.keys() & dests
         if DEBUG: print('Dest IASN intersection: {}'.format(overlap))
         if overlap:
+            if len(overlap) == 1:
+                return peek(overlap), HEAPED
             return min(overlap, key=lambda x: (self.bgp.conesize[x], -x)), HEAPED
-        # Otherwise, use relationship ASes
+        # No overlapping ASes, use relationship ASes
         rels = {dasn for dasn in dests if self.any_rels(dasn, iasns)}
         if DEBUG: print('Rels: {}'.format(rels))
         if rels:
             # Select overlapping or relationship AS with largest customer cone
-            # return max(drels, key=lambda x: (self.bgp.conesize[x], -x)), HEAPED
             return max(rels, key=lambda x: (len(self.bgp.cone[x] & dests), -x)), HEAPED
+        # No relationship between any origin AS and any destination AS
         asn = min(dests, key=lambda x: (self.bgp.conesize[x], -x))
         if iasns:
             intersection = self.bgp.providers[asn] & self.multi_customers(iasns)
