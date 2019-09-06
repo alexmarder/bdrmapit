@@ -484,11 +484,12 @@ class Bdrmapit:
                 sasn_origins[succ_asn].update(origins)  # record origin ASes seen before interface
         if DEBUG: print('Succs: {}'.format(succs))
 
-        # Deal specially with cases where there is only a single subsequent AS
+        # Deal specially with cases where there is only a single subsequent AS, or subsequent ORG
+        # Multihomed exception
         if iasns and len(succs) == 1 or len({self.as2org[sasn] for sasn in succs}) == 1:
+            # Subsequent AS
             sasn = peek(succs) if len(succs) == 1 else max(succs, key=lambda x: (self.bgp.conesize[x], -x))
-
-            # Subsequent AS is customer of interface AS
+            # Subsequent AS is not in link origin ASes and is a customer of a link origin AS
             if sasn not in sasn_origins[sasn] and sasn in self.multi_customers(sasn_origins[sasn]):
                 if DEBUG: print('Provider: {}->{}'.format(sasn_origins[sasn], sasn))
                 return sasn, utype + SINGLE_SUCC_4
@@ -499,13 +500,19 @@ class Bdrmapit:
         if not votes:
             return -1, -1
 
+        # Multiple Peers Exception
         # More than 1 subsequent AS
         if len(succs) > 1:
+            # Exactly one router origin AS
             if len(iasns) == 1:
                 iasn = peek(iasns)
+                # Origin AS is not also a subsequent AS
                 if iasn not in succs:
+                    # All subsequent ASes are peers of the single origin AS
                     if all(self.bgp.peer_rel(iasn, sasn) for sasn in succs):
+                        # Make sure its votes are not dwarfed by subsequent AS
                         if votes[iasn] > max(votes.values()) / 2:
+                            # Select the router origin AS
                             return iasn, utype + ALLPEER_SUCC
         othermax = max(votes, key=votes.__getitem__)
         if votes[othermax] >= sum(votes.values()) * .75:
