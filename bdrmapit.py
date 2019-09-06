@@ -115,7 +115,7 @@ def main():
             results = pickle.load(f)
             sys.stdout.write(' Done.\n')
     else:
-        if 'warts' not in config and 'atlas' not in config:
+        if 'warts' not in config and 'atlas' not in config and 'atlas-odd' not in config:
             print('Either "warts", "atlas" or both must be specified in the configuration json.', file=sys.stderr)
             return
         files = []
@@ -133,6 +133,13 @@ def main():
                     files.extend(TraceFile(line.strip(), OutputType.ATLAS) for line in f)
             if 'files-list' in atlas:
                 files.extend(TraceFile(file, OutputType.ATLAS) for file in atlas['files-list'])
+        if 'atlas-odd' in config:
+            atlas = config['atlas-odd']
+            if 'files' in atlas:
+                with open(atlas['files']) as f:
+                    files.extend(TraceFile(line.strip(), OutputType.ATLAS_ODD) for line in f)
+            if 'files-list' in atlas:
+                files.extend(TraceFile(file, OutputType.ATLAS_ODD) for file in atlas['files-list'])
         Progress.message('Files: {:,d}'.format(len(files)))
 
         if config['processes'] > 1:
@@ -157,7 +164,7 @@ def main():
     bdrmapit = Bdrmapit(graph, as2org, bgp, strict=False)
     bdrmapit.set_dests()
     bdrmapit.annotate_lasthops()
-    bdrmapit.graph_refinement(bdrmapit.routers_succ, bdrmapit.interfaces_pred, iterations=config['max_iterations'])
+    bdrmapit.graph_refinement(bdrmapit.routers_succ, bdrmapit.interfaces_pred, iterations=config.get('max_iterations', 10))
 
     save_annotations(args.output, bdrmapit)
     if args.nodes_as:

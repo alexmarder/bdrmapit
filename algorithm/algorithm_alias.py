@@ -87,18 +87,15 @@ class Bdrmapit:
         self.routers_succ: List[Router] = []
         self.routers_vrf: List[Router] = []
         for router in graph.routers.values():
-            if any(i.mpls for i in router.interfaces):
-                self.routers_mpls.append(router)
-            else:
-                if router.succ:
-                    if router.vrf:
-                        self.routers_vrf.append(router)
-                    else:
-                        self.routers_succ.append(router)
+            if router.succ:
+                if router.vrf:
+                    self.routers_vrf.append(router)
                 else:
-                    self.lasthops.append(router)
+                    self.routers_succ.append(router)
+            else:
+                self.lasthops.append(router)
         self.routers_vrf = sorted(self.routers_vrf, key=self.sort_vrf)
-        self.interfaces_pred: List[Interface] = [i for i in graph.interfaces.values() if i.pred and not i.mpls]
+        self.interfaces_pred: List[Interface] = [i for i in graph.interfaces.values() if i.pred]
         self.previous_updates = []
         self.strict = strict
 

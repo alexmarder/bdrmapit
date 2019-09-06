@@ -26,7 +26,7 @@ cdef class Interface:
         self.pred = {}
         self.dests = set()
         self.vrf = False
-        self.mpls = False
+        # self.mpls = False
 
     def __repr__(self):
         return 'Interface<{} {}>'.format(self.addr, self.asn)
