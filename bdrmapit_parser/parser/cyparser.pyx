@@ -7,6 +7,7 @@ from traceutils.scamper.atlas cimport AtlasReader
 from traceutils.scamper.hop import ICMPType
 from traceutils.scamper.hop cimport Reader, Trace, Hop
 from traceutils.scamper.warts cimport WartsReader
+from traceutils.scamper.pyatlas import AtlasReader as AtlasOddReader
 
 
 cdef IP2AS _ip2as
@@ -66,6 +67,8 @@ cpdef ParseResults parse(TraceFile tfile):
         f = WartsReader(filename, ping=False)
     elif output_type == OutputType.ATLAS:
         f = AtlasReader(filename)
+    elif output_type == OutputType.ATLAS_ODD:
+        f = AtlasOddReader(filename)
     else:
         raise Exception('Invalid output type: {}.'.format(output_type))
     try:

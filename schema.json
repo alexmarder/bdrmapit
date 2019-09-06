@@ -74,6 +74,25 @@
         }
       }
     },
+    "atlas-odd": {
+      "description": "Warts traceroute files, such as those created by scamper",
+      "type": "object",
+      "properties": {
+        "file-list": {
+          "description": "File with traceroute files, newline separated",
+          "type": "string"
+        },
+        "files": {
+          "description": "List of traceroute filenames",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      }
+    },
     "aliases": {
       "description": "Alias resolution file in CAIDA ITDK format",
       "type": "string"

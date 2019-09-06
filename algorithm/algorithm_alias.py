@@ -87,18 +87,15 @@ class Bdrmapit:
         self.routers_succ: List[Router] = []
         self.routers_vrf: List[Router] = []
         for router in graph.routers.values():
-            if any(i.mpls for i in router.interfaces):
-                self.routers_mpls.append(router)
-            else:
-                if router.succ:
-                    if router.vrf:
-                        self.routers_vrf.append(router)
-                    else:
-                        self.routers_succ.append(router)
+            if router.succ:
+                if router.vrf:
+                    self.routers_vrf.append(router)
                 else:
-                    self.lasthops.append(router)
+                    self.routers_succ.append(router)
+            else:
+                self.lasthops.append(router)
         self.routers_vrf = sorted(self.routers_vrf, key=self.sort_vrf)
-        self.interfaces_pred: List[Interface] = [i for i in graph.interfaces.values() if i.pred and not i.mpls]
+        self.interfaces_pred: List[Interface] = [i for i in graph.interfaces.values() if i.pred]
         self.previous_updates = []
         self.strict = strict
 
@@ -169,7 +166,7 @@ class Bdrmapit:
                 return True
         return False
 
-    def annotate_lasthop_nodests(self, router, dests, iasns):
+    def annotate_lasthop_nodests(self, iasns):
         if DEBUG: print('No dests')
         # No interface origin ASes. Only cause is the addresses had no matching prefix.
         if len(iasns) == 0:
@@ -207,7 +204,7 @@ class Bdrmapit:
         # Select the most frequent origin AS, break ties with smallest customer cone size
         return max(iasns, key=lambda x: (iasns[x], -self.bgp.conesize[x], x)), 5
 
-    def annotate_lasthop_norels(self, router, dests, iasns):
+    def annotate_lasthop_norels(self, dests, iasns):
         if self.strict:
             return max(iasns, key=lambda x: (iasns[x], -self.bgp.conesize[x], x)), NODEST
         if iasns:
@@ -233,7 +230,7 @@ class Bdrmapit:
         iasns = Counter(interface.asn for interface in router.interfaces if interface.asn > 0)
         # No destination ASes
         if len(router.dests) == 0 or all(dest <= 0 for dest in router.dests):
-            return self.annotate_lasthop_nodests(router, dests, iasns)
+            return self.annotate_lasthop_nodests(iasns)
         # Use overlapping ASes if available
         overlap = iasns.keys() & dests
         if DEBUG: print('Dest IASN intersection: {}'.format(overlap))
@@ -249,7 +246,7 @@ class Bdrmapit:
             return min(rels, key=lambda x: (self.bgp.conesize[x], -x)), HEAPED
             # return max(rels, key=lambda x: (len(self.bgp.cone[x] & dests), -x)), HEAPED
         # No relationship between any origin AS and any destination AS
-        return self.annotate_lasthop_norels(router, dests, iasns)
+        return self.annotate_lasthop_norels(dests, iasns)
 
     def annotate_lasthops(self, routers=None):
         if routers is None:
@@ -260,9 +257,18 @@ class Bdrmapit:
             self.rupdates.add_update_direct(router, dest, self.as2org[dest], utype)
 
     def router_heuristics(self, router: Router, isucc: Interface, origins: Set[int], iasns: TCounter[int]):
-        rsucc: Router = isucc.router
-        rsucc_asn = self.rupdates.asn(rsucc)
-        iupdate = self.iupdates[isucc]
+        rsucc: Router = isucc.router  # subsequent router
+        rsucc_asn = self.rupdates.asn(rsucc)  # subsequent router AS annotation
+        iupdate = self.iupdates[isucc]  # update for subsequent interface (interface annotation)
+
+        # If subsequent interface is an IXP interface, use interface AS
+        if isucc.asn <= -100:
+            return -1
+
+        # If subsequent interface AS has no known origin, use subsequent router AS
+        if isucc.asn == 0:
+            return rsucc_asn
+
         if iupdate and rsucc_asn == isucc.asn:
             succ_asn = iupdate.asn
             succ_org = iupdate.org
@@ -275,36 +281,36 @@ class Bdrmapit:
         if DEBUG:
             print('\tASN={}, RASN={}, IUpdate={} VRF={}'.format(isucc.asn, rsucc_asn, succ_asn, router.vrf))
 
-        # If subsequent interface AS has no known origin, use subsequent router AS
-        if isucc.asn == 0:
-            return rsucc_asn
-
-        # If subsequent interface is an IXP interface, use interface AS
-        if isucc.asn <= -100:
-            return -1
-
+        # Third party stuff
         third = False
         if not any(isucc.org == self.as2org[iasn] for iasn in origins):
-            # If subsequent router AS is different from the subsequent interface AS
-            rsucc_org = self.as2org[rsucc_asn]
-            if rsucc_asn > 0 and rsucc_org != succ_org and not any(succ_org == self.as2org[iasn] for iasn in origins):
-                # print(succ_org, {self.as2org[iasn] for iasn in origins})
-                if DEBUG: print('\tThird party: Router={}, RASN={}'.format(rsucc.name, rsucc_asn))
-                if rsucc_asn in origins or self.any_rels(rsucc_asn, origins):
-                    s_conesize = len(router.dests & self.bgp.cone[succ_asn])
-                    r_conesize = len(router.dests & self.bgp.cone[rsucc_asn])
-                    if DEBUG:
-                        print('\tISUCC in Dests: {} in {}'.format(succ_asn, router.dests))
-                        print('\t{} < {}'.format(s_conesize, r_conesize))
-                    # If the subsequent AS is not in the router's destination ASes, and more destination are in the
-                    # customer cone for the router's AS, use the router's AS
-                    if succ_asn not in router.dests:
-                        if s_conesize <= r_conesize:
+            # If here, subsequent interface is not in IR origin ASes
+            if rsucc_asn > 0:
+                # If here, the subsequent router has an AS annotation
+                rsucc_org = self.as2org[rsucc_asn]
+                if rsucc_org != succ_org and not any(succ_org == self.as2org[iasn] for iasn in origins):
+                    # If here, subsequent router AS is different from the subsequent interface AS
+                    if DEBUG: print('\tThird party: Router={}, RASN={}'.format(rsucc.name, rsucc_asn))
+                    if rsucc_asn in origins or self.any_rels(rsucc_asn, origins):
+                        # If here, some origin AS matches the subsequent router's AS annotation
+                        # Or, some origin AS directly interconnects with the subsequent routers AS annotation
+
+                        # Number of destination in subsequent interface origin AS customer cone
+                        s_conesize = len(router.dests & self.bgp.cone[succ_asn])
+                        # Number of destination in subsequent router AS annotation customer cone
+                        r_conesize = len(router.dests & self.bgp.cone[rsucc_asn])
+                        if DEBUG:
+                            print('\tISUCC in Dests: {} in {}'.format(succ_asn, router.dests))
+                            print('\t{} < {}'.format(s_conesize, r_conesize))
+                        if succ_asn not in router.dests:
+                            # If here, the subsequent AS is not in the router's destination ASes
+                            if s_conesize <= r_conesize:
+                                # If here, at least as many destinations are in the router AS annotation cone than in the subsequent interface origin AS cone
+                                third = True
+                        elif not self.any_rels(succ_asn, origins) and self.bgp.rel(succ_asn, rsucc_asn):
+                            # If here, none of the origins connect to the subsequent interface origin AS,
+                            # and the subsequent interface AS has a relationship with the router AS annotation.
                             third = True
-                    # If the subsequent AS has a relationship with the router AS, but not with any origin AS,
-                    # use the router AS
-                    elif self.bgp.rel(succ_asn, rsucc_asn) and not self.any_rels(succ_asn, origins):
-                        third = True
 
             # When there is no relationship between router ASes and subsequent interface AS,
             # check if relationship between router ASes and subsequent router AS when they are the same org
@@ -315,21 +321,26 @@ class Bdrmapit:
                         # return rsucc_asn
                         third = True
         if third:
-            rsucc_cone = self.bgp.cone[rsucc_asn]
+            # Third party was detected!
+            rsucc_cone = self.bgp.cone[rsucc_asn]  # subsequent router AS annotation customer cone
             if DEBUG:
                 print('\tDests: {}'.format(router.dests))
                 print('\tCone: {}'.format(rsucc_cone))
             if all(dasn == rsucc_asn or dasn in rsucc_cone for dasn in router.dests):
+                # If here, all destination ASes are in the customer cone of the subsequent router's AS annotation
                 return rsucc_asn
+            # Otherwise, ignore vote
             return -1
 
+        # TODO: Figure out something better to do here
         if succ_asn <= 0 or (0 < rsucc_asn != isucc.asn):
             if DEBUG:
                 print('ugh')
             return isucc.asn
         return succ_asn
 
-    def vrf_heuristics(self, edge: VRFEdge, origins: Set[int], iasns: TCounter[int]):
+    # def vrf_heuristics(self, edge: VRFEdge, origins: Set[int], iasns: TCounter[int]):
+    def vrf_heuristics(self, edge: VRFEdge, origins: Set[int]):
         rsucc: Router = edge.node
         vtype = edge.vtype
         if DEBUG: print('VType={}'.format(vtype.name))
@@ -392,7 +403,8 @@ class Bdrmapit:
         for edge in router.succ:
             origins = router.origins[edge]
             if DEBUG: print('Succ={}, ASN={}, VRF={}'.format(edge.node.name, self.rupdates[edge.node], edge.node.vrf))
-            succ_asn = self.vrf_heuristics(edge, origins, iasns)
+            # succ_asn = self.vrf_heuristics(edge, origins, iasns)
+            succ_asn = self.vrf_heuristics(edge, origins)
             if vtype is None:
                 vtype = edge.vtype
             elif vtype.value != edge.vtype.value:
@@ -450,6 +462,7 @@ class Bdrmapit:
         isucc: Union[Interface, VRFEdge]
         utype: int = 0
 
+        # Router origin ASes
         iasns: TCounter[int] = Counter(interface.asn for interface in router.interfaces if interface.asn > 0)
         if DEBUG:
             print('IASN: {}'.format(iasns))
@@ -457,16 +470,18 @@ class Bdrmapit:
             print('VRF={}'.format(router.vrf))
 
         # Use heuristics to determine link votes
-        succs = Counter()
-        sasn_origins = defaultdict(set)
+        succs = Counter()  # Subsequent interface vote recorder
+        sasn_origins = defaultdict(set)  # Origins seen prior to subsequent interfaces
+        # For each subsequent interface
         for isucc in router.succ:
-            origins = router.origins[isucc]
+            origins = router.origins[isucc]  # Origins seen prior to subsequent interface
             if DEBUG: print('Succ={}, ASN={}, Origins={} RSucc={}'.format(isucc.addr, isucc.asn, origins, isucc.router.name))
-            succ_asn = self.router_heuristics(router, isucc, origins, iasns)
+            succ_asn = self.router_heuristics(router, isucc, origins, iasns)  # AS vote for the subsequent interface
             if DEBUG: print('Heuristic: {}'.format(succ_asn))
+            # If vote is useful
             if succ_asn > 0:
-                succs[succ_asn] += 1
-                sasn_origins[succ_asn].update(origins)
+                succs[succ_asn] += 1  # record vote
+                sasn_origins[succ_asn].update(origins)  # record origin ASes seen before interface
         if DEBUG: print('Succs: {}'.format(succs))
 
         # Deal specially with cases where there is only a single subsequent AS
@@ -579,7 +594,7 @@ class Bdrmapit:
                 asn, utype = self.annotate_interface(interface)
                 self.iupdates.add_update(interface, asn, self.as2org[asn], utype)
 
-    def graph_refinement(self, routers: List[Router], interfaces: List[Interface], iterations=-1, clear=True, vrfrouters: List[Router] = None):
+    def graph_refinement(self, routers: List[Router], interfaces: List[Interface], iterations=-1, vrfrouters: List[Router] = None):
         self.previous_updates = []
         iteration = 0
         while iterations < 0 or iteration < iterations:

@@ -3,6 +3,7 @@ from traceutils.radix.ip2as cimport IP2AS
 cpdef enum OutputType:
     WARTS = 1
     ATLAS = 2
+    ATLAS_ODD = 3
 
 
 cdef class TraceFile:
