@@ -66,10 +66,14 @@ As a sample, the following could be in a configuration file:
     "atlas": {
         "files-list": ["atlas_file.json.bz2"]
     },
+    "atlas-odd": {
+        "files-list": ["odd-format.json.gz"]
+    },
     "processes": 3
 }
 ```
 <tt>warts.files</tt> is a file containing warts filenames (line separated), and <tt>atlas_file.json.bz2</tt> is a RIPE Atlas traceroute file. Of course, individual files and a file with filenames could be supplied for warts, atlas, or both.
+*Only use <tt>atlas-odd</tt> if you know why you're using it.*
 
 After generating the configuration file, run <tt>bdrmapit.py</tt>, with arguments,
 
