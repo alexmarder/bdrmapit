@@ -127,6 +127,26 @@ class Bdrmapit:
             result = self.annotate_interface(i)
         print(result)
 
+    def set_dest(self, router: Router):
+        for interface in router.interfaces:
+            # Copy destination ASes to avoid messing up original
+            idests: Set[int] = set(interface.dests)
+            if DEBUG:
+                print('Addr: {}'.format(interface.addr))
+                print('Dests: {}'.format(idests))
+            # If last hop, interface has non-IXP AS mapping, and interface has destination ASes
+            if not router.succ and idests and interface.asn > 0:
+                origin = interface.asn
+                # Interface must have exactly 2 destination ASes and one must be its origin AS
+                if len(idests) == 2 and origin in idests:
+                    other_asn = peek(idests - {origin})  # other AS
+                    # If other AS is likely customer of interface origin AS, and it's a small AS
+                    if self.bgp.conesize[origin] > self.bgp.conesize[other_asn] and self.bgp.conesize[other_asn] < 5:
+                        idests.discard(origin)
+                        modified += 1
+            # Add all remaining destination ASes to the router destination AS set
+            router.dests.update(idests)
+
     def set_dests(self, increment=1000000):
         """
         Set destination AS sets for each router, and remove potential relocated prefixes for last hop interfaces.
@@ -514,11 +534,16 @@ class Bdrmapit:
                         if votes[iasn] > max(votes.values()) / 2:
                             # Select the router origin AS
                             return iasn, utype + ALLPEER_SUCC
+
+        # Apply vote heuristics
+        # asns -- maximum vote getters, often one AS, but will contain all tied ASes
+        # Check if single AS accounts for at least 3/4 of votes
         othermax = max(votes, key=votes.__getitem__)
         if votes[othermax] >= sum(votes.values()) * .75:
+            # If so, select that AS
             asns = [othermax]
         else:
-            # Find vote ASes with relationship to a router interface AS
+            # Otherwise, find vote ASes with relationship to a router interface AS
             votes_rels: List[int] = [
                 vasn for vasn in votes if any(
                     vasn == iasn or self.bgp.rel(iasn, vasn) or self.as2org[iasn] == self.as2org[vasn]
@@ -526,28 +551,40 @@ class Bdrmapit:
                 )
             ]
             if DEBUG: print('Vote Rels: {}'.format(votes_rels))
+
+            # If only IR origin ASes remain, use all votes. Otherwise, use relationship ASes and origins
             if len(votes_rels) <= len(iasns):
                 asns = max_num(votes, key=votes.__getitem__)
                 if DEBUG: print('ASNs: {}'.format(asns))
             else:
                 asns = max_num(votes_rels, key=votes.__getitem__)
 
+        # If single AS, select it
         if len(asns) == 1:
             asn = asns[0]
             utype += VOTE_SINGLE
         else:
             asn = None
+            # Tiebreaker 1
+            # If single subsequent outgoing edge
             if len(router.succ) == 1:
-                isucc = peek(router.succ)
-                sasn = self.iupdates.asn(isucc)
-                if sasn in succs and len(isucc.pred) > 1:
+                isucc = peek(router.succ)  # single subsequent interface
+                sasn = self.iupdates.asn(isucc)  # annotation for subsequent interface
+                # If annotation was used, is one of the tied ASes, and the subsequent interface has multiple incoming edges
+                if sasn in succs and sasn in asns and len(isucc.pred) > 1:
                     if DEBUG: print('Pred Num: {}'.format(len(isucc.pred)))
-                    asn = sasn
+                    asn = sasn  # select the subsequent interface annotation
                     utype += 5000000
+            # Tiebreaker 2 -- use only when tiebreaker 1 does not select an AS (most of the time)
             if not asn:
                 if DEBUG: print('Conesizes: {}'.format({a: self.bgp.conesize[a] for a in asns}))
+                # First select from ASes that are both router origin ASes and subsequent ASes
+                # Then select likely customer, based on smalles customer cone size
                 asn = min(asns, key=lambda x: (not (x in sasn_origins[x] and x in succs), self.bgp.conesize[x], -x))
                 utype += VOTE_TIE
+
+        # Check for hidden AS
+        # If no relationship between selected AS and an IR origin AS
         if iasns and all(asn != iasn and not self.bgp.rel(iasn, asn) for iasn in iasns):
             return self.hidden_asn(iasns, asn, utype, votes)
         return asn, utype
