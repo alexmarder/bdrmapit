@@ -45,7 +45,7 @@ def save_annotations(filename, bdrmapit: Bdrmapit, rupdates=None, iupdates=None,
         router: Router = interface.router
         rupdate: UpdateObj = rupdates[router]
         iupdate: UpdateObj = iupdates[interface]
-        if rupdate is None:
+        if rupdate is None or interface.asn == -1:
             rasn = -1
             rorg = -1
             rtype = -1
