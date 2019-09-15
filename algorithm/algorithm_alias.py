@@ -127,26 +127,6 @@ class Bdrmapit:
             result = self.annotate_interface(i)
         print(result)
 
-    def set_dest(self, router: Router):
-        for interface in router.interfaces:
-            # Copy destination ASes to avoid messing up original
-            idests: Set[int] = set(interface.dests)
-            if DEBUG:
-                print('Addr: {}'.format(interface.addr))
-                print('Dests: {}'.format(idests))
-            # If last hop, interface has non-IXP AS mapping, and interface has destination ASes
-            if not router.succ and idests and interface.asn > 0:
-                origin = interface.asn
-                # Interface must have exactly 2 destination ASes and one must be its origin AS
-                if len(idests) == 2 and origin in idests:
-                    other_asn = peek(idests - {origin})  # other AS
-                    # If other AS is likely customer of interface origin AS, and it's a small AS
-                    if self.bgp.conesize[origin] > self.bgp.conesize[other_asn] and self.bgp.conesize[other_asn] < 5:
-                        idests.discard(origin)
-                        modified += 1
-            # Add all remaining destination ASes to the router destination AS set
-            router.dests.update(idests)
-
     def set_dests(self, increment=1000000):
         """
         Set destination AS sets for each router, and remove potential relocated prefixes for last hop interfaces.
@@ -582,6 +562,20 @@ class Bdrmapit:
                 # Then select likely customer, based on smalles customer cone size
                 asn = min(asns, key=lambda x: (not (x in sasn_origins[x] and x in succs), self.bgp.conesize[x], -x))
                 utype += VOTE_TIE
+
+        overlap = iasns.keys() & succs.keys()
+        if overlap:
+            if DEBUG:
+                print('Overlap: {}'.format(overlap))
+            oasns = max_num(overlap, key=votes.__getitem__)
+            if len(oasns) == 1:
+                oasn = oasns[0]
+                if DEBUG: print('Orgs: {} != {}'.format(self.as2org[oasn], self.as2org[asn]))
+                if self.as2org[oasn] != self.as2org[asn]:
+                    # if votes[asn] < 2*votes[oasn]:
+                    if votes[asn] < sum(votes.values()) / 2:
+                        asn = oasn
+                        utype += 1000000
 
         # Check for hidden AS
         # If no relationship between selected AS and an IR origin AS
