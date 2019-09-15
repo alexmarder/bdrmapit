@@ -78,11 +78,11 @@
       "description": "Warts traceroute files, such as those created by scamper",
       "type": "object",
       "properties": {
-        "file-list": {
+        "files": {
           "description": "File with traceroute files, newline separated",
           "type": "string"
         },
-        "files": {
+        "files-list": {
           "description": "List of traceroute filenames",
           "type": "array",
           "items": {

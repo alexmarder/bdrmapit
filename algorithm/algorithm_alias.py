@@ -563,6 +563,20 @@ class Bdrmapit:
                 asn = min(asns, key=lambda x: (not (x in sasn_origins[x] and x in succs), self.bgp.conesize[x], -x))
                 utype += VOTE_TIE
 
+        overlap = iasns.keys() & succs.keys()
+        if overlap:
+            if DEBUG:
+                print('Overlap: {}'.format(overlap))
+            oasns = max_num(overlap, key=votes.__getitem__)
+            if len(oasns) == 1:
+                oasn = oasns[0]
+                if DEBUG: print('Orgs: {} != {}'.format(self.as2org[oasn], self.as2org[asn]))
+                if self.as2org[oasn] != self.as2org[asn]:
+                    # if votes[asn] < 2*votes[oasn]:
+                    if votes[asn] < sum(votes.values()) / 2:
+                        asn = oasn
+                        utype += 1000000
+
         # Check for hidden AS
         # If no relationship between selected AS and an IR origin AS
         if iasns and all(asn != iasn and not self.bgp.rel(iasn, asn) for iasn in iasns):
