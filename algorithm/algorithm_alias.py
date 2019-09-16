@@ -565,17 +565,15 @@ class Bdrmapit:
 
         if asn not in iasns:
             overlap = iasns.keys() & succs.keys()
+            if DEBUG: print('Overlap: {}'.format(overlap))
             if overlap:
-                if DEBUG:
-                    print('Overlap: {}'.format(overlap))
-                oasns = max_num(overlap, key=votes.__getitem__)
-                if len(oasns) == 1:
-                    oasn = oasns[0]
-                    if DEBUG: print('Orgs: {} != {}'.format(self.as2org[oasn], self.as2org[asn]))
-                    if self.as2org[oasn] != self.as2org[asn]:
-                        # if votes[asn] < 2*votes[oasn]:
-                        if DEBUG: print('Succs votes: {} < {} / 2 = {}'.format(succs[asn], sum(succs.values()), sum(succs.values()) / 2))
-                        if succs[asn] < sum(succs.values()) / 2:
+                if DEBUG: print('Succs votes: {} < {} / 2 = {}'.format(succs[asn], sum(succs.values()), sum(succs.values()) / 2))
+                if succs[asn] < sum(succs.values()) / 2:
+                    oasns = max_num(overlap, key=votes.__getitem__)
+                    if len(oasns) == 1:
+                        oasn = oasns[0]
+                        if DEBUG: print('Orgs: {} != {}'.format(self.as2org[oasn], self.as2org[asn]))
+                        if self.as2org[oasn] != self.as2org[asn]:
                             asn = oasn
                             utype += 1000000
 
