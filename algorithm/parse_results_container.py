@@ -56,11 +56,14 @@ class Container:
         :param nodes_file: filename containing alias resolution groupings in CAIDA format
         :param increment: increment for status
         """
-        pb = Progress(message='Creating nodes', increment=increment)
+        taddrs = set(self.addrs)
+        pb = Progress(message='Creating nodes', increment=increment, callback=lambda: 'Routers {:,d} Interfaces {:,d}'.format(len(self.routers), len(self.interfaces)))
         with File2(nodes_file, 'rt') as f:
             for line in pb.iterator(f):
                 if line[0] != '#':
                     _, nid, *naddrs = line.split()
+                    if not any(addr in taddrs for addr in naddrs):
+                        continue
                     nid = nid[:-1]
                     router = Router(nid)
                     self.routers[router.name] = router
