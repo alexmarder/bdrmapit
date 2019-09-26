@@ -61,8 +61,11 @@ class VRFPrep(Container):
         self.bmulti = defaultdict(dict)
         self.amulti = defaultdict(set)
         self.prune = defaultdict(set)
+        # middleorg = {k: {self.as2org[a] for a in v} for k, v in self.middle.items()}
         pb = Progress(len(triplets['triplets']), 'Test', increment=500000, callback=lambda: '{:,d}'.format(len(self.prune)))
         for w, x, y in pb.iterator(triplets['triplets']):
+            if x == '2607:fe78:0:703::3':
+                print(w, x, y)
             a, b, c = None, None, None
             if not w:
                 if x in self.middle:
@@ -73,11 +76,18 @@ class VRFPrep(Container):
                         a, b = x, y
             else:
                 if x in self.middle:
+                    # wasn = self.ip2as[w]
+                    # worg = self.as2org[wasn]
                     if self.ip2as[w] in self.middle[x]:
+                    # if worg in middleorg[x]:
                         a, b, c = w, x, y
                 elif x in self.last:
                     pasns = self.last[x]
+                    if x == '2607:fe78:0:703::3':
+                        print(w, x, y, self.ip2as[w], pasns)
                     if self.ip2as[w] not in pasns:
+                        if x == '2607:fe78:0:703::3':
+                            print(w, x, y)
                         a, b, c = w, x, y
             if a and b:
                 if a in self.original_nexthop and b in self.original_nexthop[a]:

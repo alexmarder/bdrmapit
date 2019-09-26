@@ -551,24 +551,6 @@ class Bdrmapit:
             asn = None
             # Tiebreaker 1
             # If single subsequent outgoing edge
-            if len(router.succ) == 1:
-                isucc = peek(router.succ)  # single subsequent interface
-                sasn = self.iupdates.asn(isucc)  # annotation for subsequent interface
-                # If annotation was used, is one of the tied ASes, and the subsequent interface has multiple incoming edges
-                if sasn in succs and sasn in asns and len(isucc.pred) > 1:
-                    if DEBUG: print('Pred Num: {}'.format(len(isucc.pred)))
-                    asn = sasn  # select the subsequent interface annotation
-                    utype += 5000000
-                # Check for double-back traceroutes using destination ASes
-                elif len(isucc.pred) <= 1:
-                    origins = router.origins[isucc]
-                    if not any(isucc.org == self.as2org[iasn] for iasn in origins):
-                        origin_dests = {a for o in origins for a in self.bgp.customers[o]} & router.dests
-                        if DEBUG: print('\tDests: {}'.format(router.dests))
-                        if DEBUG: print('\tCustomer-Dests overlap: {}'.format(origin_dests))
-                        if isucc.asn not in router.dests and origin_dests:
-                            # if isucc.asn not in {a for o in origins for a in self.bgp.customers[o]}
-                            return max(origin_dests, key=lambda x: (self.bgp.conesize[x], -x)), 400000000
             # if len(router.succ) == 1:
             #     isucc = peek(router.succ)  # single subsequent interface
             #     sasn = self.iupdates.asn(isucc)  # annotation for subsequent interface
@@ -577,6 +559,24 @@ class Bdrmapit:
             #         if DEBUG: print('Pred Num: {}'.format(len(isucc.pred)))
             #         asn = sasn  # select the subsequent interface annotation
             #         utype += 5000000
+            #     # Check for double-back traceroutes using destination ASes
+            #     elif len(isucc.pred) <= 1:
+            #         origins = router.origins[isucc]
+            #         if not any(isucc.org == self.as2org[iasn] for iasn in origins):
+            #             origin_dests = {a for o in origins for a in self.bgp.customers[o]} & router.dests
+            #             if DEBUG: print('\tDests: {}'.format(router.dests))
+            #             if DEBUG: print('\tCustomer-Dests overlap: {}'.format(origin_dests))
+            #             if isucc.asn not in router.dests and origin_dests:
+            #                 # if isucc.asn not in {a for o in origins for a in self.bgp.customers[o]}
+            #                 return max(origin_dests, key=lambda x: (self.bgp.conesize[x], -x)), 400000000
+            if len(router.succ) == 1:
+                isucc = peek(router.succ)  # single subsequent interface
+                sasn = self.iupdates.asn(isucc)  # annotation for subsequent interface
+                # If annotation was used, is one of the tied ASes, and the subsequent interface has multiple incoming edges
+                if sasn in succs and sasn in asns and len(isucc.pred) > 1:
+                    if DEBUG: print('Pred Num: {}'.format(len(isucc.pred)))
+                    asn = sasn  # select the subsequent interface annotation
+                    utype += 5000000
             # Tiebreaker 2 -- use only when tiebreaker 1 does not select an AS (most of the time)
             if not asn:
                 if DEBUG: print('Conesizes: {}'.format({a: self.bgp.conesize[a] for a in asns}))
