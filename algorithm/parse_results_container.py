@@ -31,6 +31,9 @@ class Container:
             results = pickle.load(f)
         return cls(ip2as, as2org, **results)
 
+    def alladdrs(self):
+        return set(self.addrs) | set(self.echos)
+
     def create_node(self, addr, router: Router):
         """
         Create new interface node and assign it to router.
@@ -161,12 +164,13 @@ class Container:
                 interface = self.interfaces[addr]
                 if not interface.dests:
                     interface.echo = True
-                    if all(i.echo for i in interface.router.interfaces):
-                        interface.router.echo = True
+                    # if all(i.echo for i in interface.router.interfaces):
+                    #     interface.router.echo = True
             else:
                 router = Router(addr)
-                router.echo = True
-                self.create_node(addr, router, echo=True)
+                # router.echo = True
+                self.create_node(addr, router)
+                self.interfaces[addr].echo = True
 
     def add_cycles(self, increment=1000000):
         echos = 0
@@ -183,7 +187,7 @@ class Container:
                 router.cycle = True
                 self.create_node(addr, router, cycle=True)
 
-    def construct(self, nodes_file=None):
+    def construct(self, nodes_file=None, echos=False, cycles=False):
         """
         Construct the graph from scratch.
         :param addrs: addresses seen in the dataset
@@ -199,6 +203,8 @@ class Container:
         self.add_nexthop()
         self.add_multi()
         self.add_dests()
-        # self.add_echos()
-        # self.add_cycles()
+        if echos:
+            self.add_echos()
+        if cycles:
+            self.add_cycles()
         return self.create_graph()

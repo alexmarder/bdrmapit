@@ -76,7 +76,7 @@ class Debug:
 
 class Bdrmapit:
 
-    def __init__(self, graph: Graph, as2org: AS2Org, bgp: BGP, strict=True):
+    def __init__(self, graph: Graph, as2org: AS2Org, bgp: BGP, strict=True, skipua=False):
         self.graph = graph
         self.as2org = as2org
         self.bgp = bgp
@@ -98,6 +98,7 @@ class Bdrmapit:
         self.interfaces_pred: List[Interface] = [i for i in graph.interfaces.values() if i.pred]
         self.previous_updates = []
         self.strict = strict
+        self.skipua = skipua
 
     def test_last(self, nid, rupdates=None, iupdates=None):
         if rupdates is None:
@@ -267,7 +268,7 @@ class Bdrmapit:
 
         # If subsequent interface AS has no known origin, use subsequent router AS
         if isucc.asn == 0:
-            return rsucc_asn
+            return rsucc_asn if not self.skipua else -1
 
         if iupdate and rsucc_asn == isucc.asn:
             succ_asn = iupdate.asn
@@ -290,7 +291,9 @@ class Bdrmapit:
                 rsucc_org = self.as2org[rsucc_asn]
                 if rsucc_org != succ_org and not any(succ_org == self.as2org[iasn] for iasn in origins):
                     # If here, subsequent router AS is different from the subsequent interface AS
-                    if DEBUG: print('\tThird party: Router={}, RASN={}'.format(rsucc.name, rsucc_asn))
+                    if DEBUG:
+                        print('\tThird party: Router={}, RASN={}'.format(rsucc.name, rsucc_asn))
+                        print('\tAny origin-router rels? {}'.format(rsucc_asn in origins or self.any_rels(rsucc_asn, origins)))
                     if rsucc_asn in origins or self.any_rels(rsucc_asn, origins):
                         # If here, some origin AS matches the subsequent router's AS annotation
                         # Or, some origin AS directly interconnects with the subsequent routers AS annotation
@@ -300,7 +303,10 @@ class Bdrmapit:
                         # Number of destination in subsequent router AS annotation customer cone
                         r_conesize = len(router.dests & self.bgp.cone[rsucc_asn])
                         if DEBUG:
-                            print('\tISUCC in Dests: {} in {}'.format(succ_asn, router.dests))
+                            if len(router.dests) <= 5:
+                                print('\tISUCC in Dests: {} in {}'.format(succ_asn, router.dests))
+                            else:
+                                print('\tISUCC not in Dests: {}'.format(succ_asn not in router.dests))
                             print('\t{} < {}'.format(s_conesize, r_conesize))
                         if succ_asn not in router.dests:
                             # If here, the subsequent AS is not in the router's destination ASes
@@ -324,19 +330,45 @@ class Bdrmapit:
             # Third party was detected!
             rsucc_cone = self.bgp.cone[rsucc_asn]  # subsequent router AS annotation customer cone
             if DEBUG:
-                print('\tDests: {}'.format(router.dests))
-                print('\tCone: {}'.format(rsucc_cone))
+                if len(router.dests) <= 5:
+                    print('\tDests: {}'.format(router.dests))
+                if len(rsucc_cone) <= 5:
+                    print('\tCone: {}'.format(rsucc_cone))
             if all(dasn == rsucc_asn or dasn in rsucc_cone for dasn in router.dests):
                 # If here, all destination ASes are in the customer cone of the subsequent router's AS annotation
                 return rsucc_asn
+            if DEBUG:
+                for origin in origins:
+                    print('Origin {}: RSUCC overlap {} ? SUCC overlap {}'.format(origin, len(router.dests & rsucc_cone), len(router.dests & self.bgp.cone[origin])))
+                print('\tASes not in customer cone for {}'.format(rsucc_asn))
+                for dasn in router.dests:
+                    if dasn not in rsucc_cone and dasn != rsucc_asn:
+                        print('\t\t{}, in succ ASN cone {}'.format(dasn, dasn in self.bgp.cone[succ_asn]))
             # Otherwise, ignore vote
             return -1
 
         # TODO: Figure out something better to do here
-        if succ_asn <= 0 or (0 < rsucc_asn != isucc.asn):
+        if succ_asn <= 0 or (rsucc_asn > 0 and rsucc_asn != isucc.asn):
             if DEBUG:
-                print('ugh')
-            return isucc.asn
+                if succ_asn != isucc.asn:
+                    print('ugh')
+            succ_asn = isucc.asn
+        # if not any(origin == succ_asn or self.bgp.rel(origin, succ_asn) for origin in origins):
+        #     if DEBUG: print('\tLooking for hidden. Current={}'.format(succ_asn))
+        #     intersection: Set[int] = self.multi_customers(origins) & self.bgp.providers[succ_asn]
+        #     if len(intersection) == 1:
+        #         succ_asn = peek(intersection)
+        #         if DEBUG: print('\tHidden: {}'.format(succ_asn))
+        #     if not intersection:
+        #         intersection = self.multi_providers(origins) & self.bgp.customers[succ_asn]
+        #         if len(intersection) == 1:
+        #             succ_asn = peek(intersection)
+        #             if DEBUG: print('\tHidden Reversed: {}'.format(succ_asn))
+        #     if not intersection:
+        #         intersection: Set[int] = self.multi_peers(origins) & self.bgp.providers[succ_asn]
+        #         if len(intersection) == 1:
+        #             succ_asn = peek(intersection)
+        #             if DEBUG: print('\tHidden Peer: {}'.format(succ_asn))
         return succ_asn
 
     # def vrf_heuristics(self, edge: VRFEdge, origins: Set[int], iasns: TCounter[int]):
@@ -464,6 +496,8 @@ class Bdrmapit:
         # Router origin ASes
         iasns: TCounter[int] = Counter(interface.asn for interface in router.interfaces if interface.asn > 0)
         if DEBUG:
+            if len(router.interfaces) <= 5:
+                print('Interfaces: {}'.format(' '.join(i.addr for i in router.interfaces)))
             print('IASN: {}'.format(iasns))
             print('Edges={}, NH={}'.format(len(router.succ), router.nexthop))
             print('VRF={}'.format(router.vrf))
