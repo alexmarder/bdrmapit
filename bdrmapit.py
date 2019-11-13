@@ -7,9 +7,9 @@ import sys
 from argparse import ArgumentParser
 
 from jsonschema import validate
-from traceutils.as2org.as2org import AS2Org
-from traceutils.bgp.bgp import BGP
-from traceutils.progress.bar import Progress
+from traceutils.as2org import AS2Org
+from traceutils.bgp import BGP
+from traceutils.progress import Progress
 from traceutils.radix.ip2as import create_table, IP2AS
 
 from algorithm.algorithm_alias import Bdrmapit
@@ -96,10 +96,11 @@ def main():
     parser.add_argument('-o', '--output', required=True, help='Output filename for sqlite3 output.')
     parser.add_argument('-n', '--nodes-as', help='Nodes to AS mapping filename.')
     parser.add_argument('-c', '--config', required=True, help='JSON config file in accordance with schema.json')
+    parser.add_argument('-g', '--graph', help='Graph pickle object created by --graph-only.')
     parser.add_argument('--graph-only', action='store_true', help='Only create the graph, then save it to the specified file.')
     args = parser.parse_args()
 
-    with open('schema.json') as f:
+    with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'schema.json')) as f:
         schema = json.load(f)
     with open(args.config) as f:
         config = json.load(f)
@@ -111,6 +112,11 @@ def main():
 
     if 'graph' in config:
         with open(config['graph'], 'rb') as f:
+            sys.stdout.write('Unpickling graph.')
+            results = pickle.load(f)
+            sys.stdout.write(' Done.\n')
+    elif args.graph:
+        with open(args.graph, 'rb') as f:
             sys.stdout.write('Unpickling graph.')
             results = pickle.load(f)
             sys.stdout.write(' Done.\n')
