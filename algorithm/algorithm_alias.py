@@ -76,7 +76,7 @@ class Debug:
 
 class Bdrmapit:
 
-    def __init__(self, graph: Graph, as2org: AS2Org, bgp: BGP, strict=True, skipua=False):
+    def __init__(self, graph: Graph, as2org: AS2Org, bgp: BGP, strict=True, skipua=False, hidden_reverse=True):
         self.graph = graph
         self.as2org = as2org
         self.bgp = bgp
@@ -99,6 +99,7 @@ class Bdrmapit:
         self.previous_updates = []
         self.strict = strict
         self.skipua = skipua
+        self.hidden_reverse = hidden_reverse
 
     def test_last(self, nid, rupdates=None, iupdates=None):
         if rupdates is None:
@@ -395,7 +396,7 @@ class Bdrmapit:
             if DEBUG: print('Hidden: {}'.format(intasn))
 
         # If there is no intersection, check for provider of interface AS who is customer of selected AS
-        elif not intersection:
+        elif not intersection and self.hidden_reverse:
             intersection = self.multi_providers(iasns) & self.bgp.customers[asn]
             if len(intersection) == 1:
                 intasn = peek(intersection)

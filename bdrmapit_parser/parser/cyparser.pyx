@@ -90,7 +90,7 @@ cpdef ParseResults parse(TraceFile tfile):
                 if i == len(hops) - 1:
                     break
                 y = hops[i+1]
-                if y.type == ICMPType.echo_reply:
+                if y.type == ICMPType.echo_reply or y.type == ICMPType.portping:
                     echos.add(y.addr)
                     break
                 distance = y.probe_ttl - x.probe_ttl
