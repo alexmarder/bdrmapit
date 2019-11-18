@@ -116,7 +116,10 @@ class Bdrmapit:
 
     def test_router(self, nid, rupdates=None, iupdates=None):
         with Debug(self, rupdates=rupdates, iupdates=iupdates):
-            r: Router = self.graph.routers[nid]
+            try:
+                r: Router = self.graph.routers[nid]
+            except KeyError:
+                r: Router = self.graph.interfaces[nid].router
             if r.vrf:
                 result = self.annotate_router_vrf(r)
             else:
@@ -585,28 +588,13 @@ class Bdrmapit:
         else:
             asn = None
             # Tiebreaker 1
-            # If single subsequent outgoing edge
-            # if len(router.succ) == 1:
-            #     isucc = peek(router.succ)  # single subsequent interface
-            #     sasn = self.iupdates.asn(isucc)  # annotation for subsequent interface
-            #     # If annotation was used, is one of the tied ASes, and the subsequent interface has multiple incoming edges
-            #     if sasn in succs and sasn in asns and len(isucc.pred) > 1:
-            #         if DEBUG: print('Pred Num: {}'.format(len(isucc.pred)))
-            #         asn = sasn  # select the subsequent interface annotation
-            #         utype += 5000000
-            #     # Check for double-back traceroutes using destination ASes
-            #     elif len(isucc.pred) <= 1:
-            #         origins = router.origins[isucc]
-            #         if not any(isucc.org == self.as2org[iasn] for iasn in origins):
-            #             origin_dests = {a for o in origins for a in self.bgp.customers[o]} & router.dests
-            #             if DEBUG: print('\tDests: {}'.format(router.dests))
-            #             if DEBUG: print('\tCustomer-Dests overlap: {}'.format(origin_dests))
-            #             if isucc.asn not in router.dests and origin_dests:
-            #                 # if isucc.asn not in {a for o in origins for a in self.bgp.customers[o]}
-            #                 return max(origin_dests, key=lambda x: (self.bgp.conesize[x], -x)), 400000000
             if len(router.succ) == 1:
                 isucc = peek(router.succ)  # single subsequent interface
                 sasn = self.iupdates.asn(isucc)  # annotation for subsequent interface
+                if len(router.interfaces) == 1 and sasn == -1:
+                    rasn = router.interfaces[0].asn
+                    if self.bgp.peer_rel(rasn, isucc.asn):
+                        return -1, 6000000
                 # If annotation was used, is one of the tied ASes, and the subsequent interface has multiple incoming edges
                 if sasn in succs and sasn in asns and len(isucc.pred) > 1:
                     if DEBUG: print('Pred Num: {}'.format(len(isucc.pred)))
@@ -660,16 +648,13 @@ class Bdrmapit:
         votes = Counter()
         for rpred, num in edges.items():
             asn = self.rupdates.asn(rpred)
-            if DEBUG:
-                print('Router={}, RASN={}'.format(rpred.name, asn))
+            if DEBUG: print('Router={}, RASN={}'.format(rpred.name, asn))
             votes[asn] += num
-        if DEBUG:
-            print('Votes: {}'.format(votes))
+        if DEBUG: print('Votes: {}'.format(votes))
         if len(votes) == 1:
             return peek(votes), 1 if len(edges) > 1 else 0
         asns = max_num(votes, key=votes.__getitem__)
-        if DEBUG:
-            print('MaxNum: {}'.format(asns))
+        if DEBUG: print('MaxNum: {}'.format(asns))
         rels = [asn for asn in asns if interface.asn == asn or self.bgp.rel(interface.asn, asn)]
         if not rels:
             rels = asns
@@ -678,7 +663,8 @@ class Bdrmapit:
             print('Sorted Rels: {}'.format(sorted(rels, key=lambda x: (
                 x != interface.asn, -self.bgp.provider_rel(interface.asn, x), -self.bgp.conesize[x], x))))
         # asn = max(asns, key=lambda x: (x == interface.asn, bdrmapit.bgp.conesize[x], -x))
-        asn = min(rels, key=lambda x: (x != interface.asn, -self.bgp.provider_rel(interface.asn, x), -self.bgp.conesize[x], x))
+        # asn = min(rels, key=lambda x: (x != interface.asn, -self.bgp.provider_rel(interface.asn, x), -self.bgp.conesize[x], x))
+        asn = min(rels, key=lambda x: (x != interface.asn, -self.bgp.conesize[x], x))
         utype = 1 if len(asns) == 1 and len(edges) > 1 else 2
         return asn, utype
 
