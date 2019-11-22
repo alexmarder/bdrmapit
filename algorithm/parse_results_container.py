@@ -1,4 +1,5 @@
 import pickle
+from collections import defaultdict
 from typing import Dict, Union
 
 from deprecated import deprecated
@@ -142,8 +143,9 @@ class Container:
         """
         pb = Progress(len(self.dps), 'Adding destination ASes', increment=increment)
         for addr, dests in pb.iterator(self.dps.items()):
-            interface = self.interfaces[addr]
-            interface.dests.update(dests)
+            interface = self.interfaces.get(addr)
+            if interface is not None:
+                interface.dests.update(dests)
 
     def create_graph(self):
         """
