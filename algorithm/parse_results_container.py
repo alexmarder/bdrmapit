@@ -1,4 +1,5 @@
 import pickle
+from collections import defaultdict
 from typing import Dict, Union
 
 from deprecated import deprecated
@@ -31,6 +32,9 @@ class Container:
             results = pickle.load(f)
         return cls(ip2as, as2org, **results)
 
+    def alladdrs(self):
+        return set(self.addrs) | set(self.echos)
+
     def create_node(self, addr, router: Router):
         """
         Create new interface node and assign it to router.
@@ -56,11 +60,14 @@ class Container:
         :param nodes_file: filename containing alias resolution groupings in CAIDA format
         :param increment: increment for status
         """
-        pb = Progress(message='Creating nodes', increment=increment)
+        taddrs = set(self.addrs)
+        pb = Progress(message='Creating nodes', increment=increment, callback=lambda: 'Routers {:,d} Interfaces {:,d}'.format(len(self.routers), len(self.interfaces)))
         with File2(nodes_file, 'rt') as f:
             for line in pb.iterator(f):
                 if line[0] != '#':
                     _, nid, *naddrs = line.split()
+                    if not any(addr in taddrs for addr in naddrs):
+                        continue
                     nid = nid[:-1]
                     router = Router(nid)
                     self.routers[router.name] = router
@@ -136,8 +143,9 @@ class Container:
         """
         pb = Progress(len(self.dps), 'Adding destination ASes', increment=increment)
         for addr, dests in pb.iterator(self.dps.items()):
-            interface = self.interfaces[addr]
-            interface.dests.update(dests)
+            interface = self.interfaces.get(addr)
+            if interface is not None:
+                interface.dests.update(dests)
 
     def create_graph(self):
         """
@@ -158,12 +166,13 @@ class Container:
                 interface = self.interfaces[addr]
                 if not interface.dests:
                     interface.echo = True
-                    if all(i.echo for i in interface.router.interfaces):
-                        interface.router.echo = True
+                    # if all(i.echo for i in interface.router.interfaces):
+                    #     interface.router.echo = True
             else:
                 router = Router(addr)
-                router.echo = True
-                self.create_node(addr, router, echo=True)
+                # router.echo = True
+                self.create_node(addr, router)
+                self.interfaces[addr].echo = True
 
     def add_cycles(self, increment=1000000):
         echos = 0
@@ -180,7 +189,7 @@ class Container:
                 router.cycle = True
                 self.create_node(addr, router, cycle=True)
 
-    def construct(self, nodes_file=None):
+    def construct(self, nodes_file=None, echos=False, cycles=False):
         """
         Construct the graph from scratch.
         :param addrs: addresses seen in the dataset
@@ -196,6 +205,8 @@ class Container:
         self.add_nexthop()
         self.add_multi()
         self.add_dests()
-        # self.add_echos()
-        # self.add_cycles()
+        if echos:
+            self.add_echos()
+        if cycles:
+            self.add_cycles()
         return self.create_graph()

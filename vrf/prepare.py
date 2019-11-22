@@ -16,18 +16,14 @@ class VRFPrep(Container):
     def __init__(self, ip2as: IP2AS, as2org: AS2Org, vrfinfo=None, nexthop=None, multi=None, **kwargs):
         super().__init__(ip2as, as2org, **kwargs)
         if vrfinfo:
-            self.bspace = vrfinfo['middle']
-            self.lasts = vrfinfo['last']
+            self.middle = vrfinfo['middle']
+            self.last = vrfinfo['last']
         else:
-            self.bspace = None
-            self.lasts = None
+            self.middle = None
+            self.last = None
         self.ip2as = ip2as
         self.original_nexthop = nexthop
         self.original_multi = multi
-        # self.toforward_next = None
-        # self.forwarding_next = None
-        # self.toforward_multi = None
-        # self.forwarding_multi = None
         self.bnext: Optional[Dict[str, Dict[str, VType]]] = None
         self.anext = None
         self.bmulti: Optional[Dict[str, Dict[str, VType]]] = None
@@ -37,8 +33,8 @@ class VRFPrep(Container):
     def load_vrfinfo(self, filename):
         with open(filename, 'rb') as f:
             vrfinfo = pickle.load(f)
-        self.bspace = vrfinfo['middle']
-        self.lasts = vrfinfo['last']
+        self.middle = vrfinfo['middle']
+        self.last = vrfinfo['last']
 
     def merge_edgetypes(self, toforward, forwarding):
         bedges = defaultdict(dict)
@@ -55,46 +51,6 @@ class VRFPrep(Container):
         bedges.default_factory = None
         return bedges
 
-    # def mark_vrfs(self, triplets):
-    #     toforward_next = defaultdict(set)
-    #     forwarding_next = defaultdict(set)
-    #     self.bnext = defaultdict(dict)
-    #     self.anext = defaultdict(set)
-    #     toforward_multi = defaultdict(set)
-    #     forwarding_multi = defaultdict(set)
-    #     self.bmulti = defaultdict(dict)
-    #     self.amulti = defaultdict(set)
-    #     self.prune = defaultdict(set)
-    #     pb = Progress(len(triplets['triplets']), 'Test', increment=500000, callback=lambda: '{:,d}'.format(len(self.prune)))
-    #     for w, x, y in pb.iterator(triplets['triplets']):
-    #         a, b, c = None, None, None
-    #         if x in self.bspace:
-    #             if not w or not self.bspace[x] or self.ip2as[w] in self.bspace[x]:
-    #                 a, b, c = w, x, y
-    #         if x in self.lasts:
-    #             a, b = w, x
-    #         if y in self.lasts:
-    #             a, b = x, y
-    #         if a and b:
-    #             if a in self.original_nexthop and b in self.original_nexthop[a]:
-    #                 toforward = toforward_next
-    #                 forwarding = forwarding_next
-    #                 aedges = self.anext
-    #             else:
-    #                 toforward = toforward_multi
-    #                 forwarding = forwarding_multi
-    #                 aedges = self.amulti
-    #             if a:
-    #                 self.prune[a].add(b)
-    #                 toforward[a].add(b)
-    #                 forwarding[b].add(a)
-    #             if c:
-    #                 self.prune[b].add(c)
-    #                 aedges[b].add(c)
-    #                 aedges[c].add(b)
-    #     self.bnext = self.merge_edgetypes(toforward_next, forwarding_next)
-    #     self.bmulti = self.merge_edgetypes(toforward_multi, forwarding_multi)
-
     def mark_vrfs(self, triplets):
         toforward_next = defaultdict(set)
         forwarding_next = defaultdict(set)
@@ -105,41 +61,44 @@ class VRFPrep(Container):
         self.bmulti = defaultdict(dict)
         self.amulti = defaultdict(set)
         self.prune = defaultdict(set)
-        pb = Progress(len(triplets['triplets']), 'Test', increment=500000, callback=lambda: '{:,d}'.format(len(self.prune)))
-        for w, x, y in pb.iterator(triplets['triplets']):
-            # if not (x == '149.165.183.5' and y == '149.165.183.4'):
-            #     continue
-            # print(w, x, y)
-            a, b, c = None, None, None
-            if x in self.bspace:
-                # print('\t', self.ip2as[w], self.ip2as[x], self.ip2as[y])
-                if not w or not self.bspace[x] or self.ip2as[w] in self.bspace[x]:
-                    a, b, c = w, x, y
-            elif x in self.lasts:
-                if not w or not self.lasts[x] or self.ip2as[w] in self.lasts[x]:
-                    # print('huh?', w, x, y)
-                    a, b, c = w, x, y
-            elif y in self.lasts:
-                if not x or not self.lasts[y] or self.ip2as[x] in self.lasts[y]:
-                    a, b = x, y
-            # print('\t', a, b, c)
-            if a and b:
-                if a in self.original_nexthop and b in self.original_nexthop[a]:
-                    toforward = toforward_next
-                    forwarding = forwarding_next
-                    aedges = self.anext
+
+        def mark(a, b, c=None):
+            if a in self.original_nexthop and b in self.original_nexthop[a]:
+                toforward = toforward_next
+                forwarding = forwarding_next
+                aedges = self.anext
+            else:
+                toforward = toforward_multi
+                forwarding = forwarding_multi
+                aedges = self.amulti
+            if a:
+                self.prune[a].add(b)
+                toforward[a].add(b)
+                forwarding[b].add(a)
+            if c:
+                self.prune[b].add(c)
+                aedges[b].add(c)
+                aedges[c].add(b)
+
+        pb = Progress(len(triplets), 'Test', increment=500000, callback=lambda: '{:,d}'.format(len(self.prune)))
+        for w, x, y in pb.iterator(triplets):
+            if x in self.middle:
+                if not w:
+                    if None in self.middle[x]:
+                        mark(x, y)
                 else:
-                    toforward = toforward_multi
-                    forwarding = forwarding_multi
-                    aedges = self.amulti
-                if a:
-                    self.prune[a].add(b)
-                    toforward[a].add(b)
-                    forwarding[b].add(a)
-                if c:
-                    self.prune[b].add(c)
-                    aedges[b].add(c)
-                    aedges[c].add(b)
+                    if self.ip2as[w] in self.middle[x]:
+                        mark(w, x, y)
+            if y in self.last:
+                # if y == '2001:468:f000:2132::1':
+                #     print(w, x, y)
+                if not w:
+                    if None not in self.last[y]:
+                        mark(x, y)
+                else:
+                    pasns = self.last[y]
+                    if self.ip2as[x] not in pasns:
+                        mark(x, y)
         self.bnext = self.merge_edgetypes(toforward_next, forwarding_next)
         self.bmulti = self.merge_edgetypes(toforward_multi, forwarding_multi)
 
@@ -253,7 +212,7 @@ class VRFPrep(Container):
         self.add_multi_forwarding(skip_exists=skip_exists)
         if not skip_dests:
             self.add_dests()
-        self.add_echos()
-        self.add_cycles()
+        # self.add_echos()
+        # self.add_cycles()
         if not skip_graph:
             return self.create_graph()

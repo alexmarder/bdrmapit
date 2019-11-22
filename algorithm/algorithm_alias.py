@@ -76,7 +76,7 @@ class Debug:
 
 class Bdrmapit:
 
-    def __init__(self, graph: Graph, as2org: AS2Org, bgp: BGP, strict=True):
+    def __init__(self, graph: Graph, as2org: AS2Org, bgp: BGP, strict=True, skipua=False, hidden_reverse=True):
         self.graph = graph
         self.as2org = as2org
         self.bgp = bgp
@@ -98,6 +98,8 @@ class Bdrmapit:
         self.interfaces_pred: List[Interface] = [i for i in graph.interfaces.values() if i.pred]
         self.previous_updates = []
         self.strict = strict
+        self.skipua = skipua
+        self.hidden_reverse = hidden_reverse
 
     def test_last(self, nid, rupdates=None, iupdates=None):
         if rupdates is None:
@@ -114,7 +116,10 @@ class Bdrmapit:
 
     def test_router(self, nid, rupdates=None, iupdates=None):
         with Debug(self, rupdates=rupdates, iupdates=iupdates):
-            r: Router = self.graph.routers[nid]
+            try:
+                r: Router = self.graph.routers[nid]
+            except KeyError:
+                r: Router = self.graph.interfaces[nid].router
             if r.vrf:
                 result = self.annotate_router_vrf(r)
             else:
@@ -267,7 +272,7 @@ class Bdrmapit:
 
         # If subsequent interface AS has no known origin, use subsequent router AS
         if isucc.asn == 0:
-            return rsucc_asn
+            return rsucc_asn if not self.skipua else -1
 
         if iupdate and rsucc_asn == isucc.asn:
             succ_asn = iupdate.asn
@@ -290,7 +295,9 @@ class Bdrmapit:
                 rsucc_org = self.as2org[rsucc_asn]
                 if rsucc_org != succ_org and not any(succ_org == self.as2org[iasn] for iasn in origins):
                     # If here, subsequent router AS is different from the subsequent interface AS
-                    if DEBUG: print('\tThird party: Router={}, RASN={}'.format(rsucc.name, rsucc_asn))
+                    if DEBUG:
+                        print('\tThird party: Router={}, RASN={}'.format(rsucc.name, rsucc_asn))
+                        print('\tAny origin-router rels? {}'.format(rsucc_asn in origins or self.any_rels(rsucc_asn, origins)))
                     if rsucc_asn in origins or self.any_rels(rsucc_asn, origins):
                         # If here, some origin AS matches the subsequent router's AS annotation
                         # Or, some origin AS directly interconnects with the subsequent routers AS annotation
@@ -300,7 +307,10 @@ class Bdrmapit:
                         # Number of destination in subsequent router AS annotation customer cone
                         r_conesize = len(router.dests & self.bgp.cone[rsucc_asn])
                         if DEBUG:
-                            print('\tISUCC in Dests: {} in {}'.format(succ_asn, router.dests))
+                            if len(router.dests) <= 5:
+                                print('\tISUCC in Dests: {} in {}'.format(succ_asn, router.dests))
+                            else:
+                                print('\tISUCC not in Dests: {}'.format(succ_asn not in router.dests))
                             print('\t{} < {}'.format(s_conesize, r_conesize))
                         if succ_asn not in router.dests:
                             # If here, the subsequent AS is not in the router's destination ASes
@@ -324,19 +334,45 @@ class Bdrmapit:
             # Third party was detected!
             rsucc_cone = self.bgp.cone[rsucc_asn]  # subsequent router AS annotation customer cone
             if DEBUG:
-                print('\tDests: {}'.format(router.dests))
-                print('\tCone: {}'.format(rsucc_cone))
+                if len(router.dests) <= 5:
+                    print('\tDests: {}'.format(router.dests))
+                if len(rsucc_cone) <= 5:
+                    print('\tCone: {}'.format(rsucc_cone))
             if all(dasn == rsucc_asn or dasn in rsucc_cone for dasn in router.dests):
                 # If here, all destination ASes are in the customer cone of the subsequent router's AS annotation
                 return rsucc_asn
+            if DEBUG:
+                for origin in origins:
+                    print('Origin {}: RSUCC overlap {} ? SUCC overlap {}'.format(origin, len(router.dests & rsucc_cone), len(router.dests & self.bgp.cone[origin])))
+                print('\tASes not in customer cone for {}'.format(rsucc_asn))
+                for dasn in router.dests:
+                    if dasn not in rsucc_cone and dasn != rsucc_asn:
+                        print('\t\t{}, in succ ASN cone {}'.format(dasn, dasn in self.bgp.cone[succ_asn]))
             # Otherwise, ignore vote
             return -1
 
         # TODO: Figure out something better to do here
-        if succ_asn <= 0 or (0 < rsucc_asn != isucc.asn):
+        if succ_asn <= 0 or (rsucc_asn > 0 and rsucc_asn != isucc.asn):
             if DEBUG:
-                print('ugh')
-            return isucc.asn
+                if succ_asn != isucc.asn:
+                    print('ugh')
+            succ_asn = isucc.asn
+        # if not any(origin == succ_asn or self.bgp.rel(origin, succ_asn) for origin in origins):
+        #     if DEBUG: print('\tLooking for hidden. Current={}'.format(succ_asn))
+        #     intersection: Set[int] = self.multi_customers(origins) & self.bgp.providers[succ_asn]
+        #     if len(intersection) == 1:
+        #         succ_asn = peek(intersection)
+        #         if DEBUG: print('\tHidden: {}'.format(succ_asn))
+        #     if not intersection:
+        #         intersection = self.multi_providers(origins) & self.bgp.customers[succ_asn]
+        #         if len(intersection) == 1:
+        #             succ_asn = peek(intersection)
+        #             if DEBUG: print('\tHidden Reversed: {}'.format(succ_asn))
+        #     if not intersection:
+        #         intersection: Set[int] = self.multi_peers(origins) & self.bgp.providers[succ_asn]
+        #         if len(intersection) == 1:
+        #             succ_asn = peek(intersection)
+        #             if DEBUG: print('\tHidden Peer: {}'.format(succ_asn))
         return succ_asn
 
     # def vrf_heuristics(self, edge: VRFEdge, origins: Set[int], iasns: TCounter[int]):
@@ -363,7 +399,7 @@ class Bdrmapit:
             if DEBUG: print('Hidden: {}'.format(intasn))
 
         # If there is no intersection, check for provider of interface AS who is customer of selected AS
-        elif not intersection:
+        elif not intersection and self.hidden_reverse:
             intersection = self.multi_providers(iasns) & self.bgp.customers[asn]
             if len(intersection) == 1:
                 intasn = peek(intersection)
@@ -393,7 +429,6 @@ class Bdrmapit:
             print('IASN: {}'.format(iasns))
             print('Edges={}, NH={}'.format(len(router.succ), router.nexthop))
             print('VRF={}'.format(router.vrf))
-            print('MPLS?: {}'.format(any(i.mpls for i in router.interfaces)))
 
         # Use heuristics to determine link votes
         vtype = None
@@ -465,6 +500,8 @@ class Bdrmapit:
         # Router origin ASes
         iasns: TCounter[int] = Counter(interface.asn for interface in router.interfaces if interface.asn > 0)
         if DEBUG:
+            if len(router.interfaces) <= 5:
+                print('Interfaces: {}'.format(' '.join(i.addr for i in router.interfaces)))
             print('IASN: {}'.format(iasns))
             print('Edges={}, NH={}'.format(len(router.succ), router.nexthop))
             print('VRF={}'.format(router.vrf))
@@ -497,6 +534,11 @@ class Bdrmapit:
         # Create votes counter and add interface AS
         votes = succs + iasns
         if DEBUG: print('Votes: {}'.format(votes))
+        # if DEBUG:
+        #     orgvotes = Counter()
+        #     for k, v in votes.items():
+        #         orgvotes[self.as2org[k]] += v
+        #     print('Vote Orgs: {}'.format(orgvotes))
         if not votes:
             return -1, -1
 
@@ -540,16 +582,19 @@ class Bdrmapit:
                 asns = max_num(votes_rels, key=votes.__getitem__)
 
         # If single AS, select it
-        if len(asns) == 1:
+        if len(asns) == 1 and succs:
             asn = asns[0]
             utype += VOTE_SINGLE
         else:
             asn = None
             # Tiebreaker 1
-            # If single subsequent outgoing edge
             if len(router.succ) == 1:
                 isucc = peek(router.succ)  # single subsequent interface
                 sasn = self.iupdates.asn(isucc)  # annotation for subsequent interface
+                if len(router.interfaces) == 1 and sasn == -1:
+                    rasn = router.interfaces[0].asn
+                    if self.bgp.peer_rel(rasn, isucc.asn):
+                        return -1, 6000000
                 # If annotation was used, is one of the tied ASes, and the subsequent interface has multiple incoming edges
                 if sasn in succs and sasn in asns and len(isucc.pred) > 1:
                     if DEBUG: print('Pred Num: {}'.format(len(isucc.pred)))
@@ -565,17 +610,15 @@ class Bdrmapit:
 
         if asn not in iasns:
             overlap = iasns.keys() & succs.keys()
+            if DEBUG: print('Overlap: {}'.format(overlap))
             if overlap:
-                if DEBUG:
-                    print('Overlap: {}'.format(overlap))
-                oasns = max_num(overlap, key=votes.__getitem__)
-                if len(oasns) == 1:
-                    oasn = oasns[0]
-                    if DEBUG: print('Orgs: {} != {}'.format(self.as2org[oasn], self.as2org[asn]))
-                    if self.as2org[oasn] != self.as2org[asn]:
-                        # if votes[asn] < 2*votes[oasn]:
-                        if DEBUG: print('Succs votes: {} < {} / 2 = {}'.format(succs[asn], sum(succs.values()), sum(succs.values()) / 2))
-                        if succs[asn] < sum(succs.values()) / 2:
+                if DEBUG: print('Succs votes: {} < {} / 2 = {}'.format(succs[asn], sum(succs.values()), sum(succs.values()) / 2))
+                if succs[asn] < sum(succs.values()) / 2:
+                    oasns = max_num(overlap, key=votes.__getitem__)
+                    if len(oasns) == 1:
+                        oasn = oasns[0]
+                        if DEBUG: print('Orgs: {} != {}'.format(self.as2org[oasn], self.as2org[asn]))
+                        if self.as2org[oasn] != self.as2org[asn]:
                             asn = oasn
                             utype += 1000000
 
@@ -605,16 +648,13 @@ class Bdrmapit:
         votes = Counter()
         for rpred, num in edges.items():
             asn = self.rupdates.asn(rpred)
-            if DEBUG:
-                print('Router={}, RASN={}'.format(rpred.name, asn))
+            if DEBUG: print('Router={}, RASN={}'.format(rpred.name, asn))
             votes[asn] += num
-        if DEBUG:
-            print('Votes: {}'.format(votes))
+        if DEBUG: print('Votes: {}'.format(votes))
         if len(votes) == 1:
             return peek(votes), 1 if len(edges) > 1 else 0
         asns = max_num(votes, key=votes.__getitem__)
-        if DEBUG:
-            print('MaxNum: {}'.format(asns))
+        if DEBUG: print('MaxNum: {}'.format(asns))
         rels = [asn for asn in asns if interface.asn == asn or self.bgp.rel(interface.asn, asn)]
         if not rels:
             rels = asns
@@ -623,7 +663,8 @@ class Bdrmapit:
             print('Sorted Rels: {}'.format(sorted(rels, key=lambda x: (
                 x != interface.asn, -self.bgp.provider_rel(interface.asn, x), -self.bgp.conesize[x], x))))
         # asn = max(asns, key=lambda x: (x == interface.asn, bdrmapit.bgp.conesize[x], -x))
-        asn = min(rels, key=lambda x: (x != interface.asn, -self.bgp.provider_rel(interface.asn, x), -self.bgp.conesize[x], x))
+        # asn = min(rels, key=lambda x: (x != interface.asn, -self.bgp.provider_rel(interface.asn, x), -self.bgp.conesize[x], x))
+        asn = min(rels, key=lambda x: (x != interface.asn, -self.bgp.conesize[x], x))
         utype = 1 if len(asns) == 1 and len(edges) > 1 else 2
         return asn, utype
 
