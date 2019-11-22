@@ -80,8 +80,8 @@ class VRFPrep(Container):
                 aedges[b].add(c)
                 aedges[c].add(b)
 
-        pb = Progress(len(triplets['triplets']), 'Test', increment=500000, callback=lambda: '{:,d}'.format(len(self.prune)))
-        for w, x, y in pb.iterator(triplets['triplets']):
+        pb = Progress(len(triplets), 'Test', increment=500000, callback=lambda: '{:,d}'.format(len(self.prune)))
+        for w, x, y in pb.iterator(triplets):
             if x in self.middle:
                 if not w:
                     if None in self.middle[x]:

@@ -73,7 +73,7 @@ class Bdrmapit:
                 self.routers_succ.append(router)
             else:
                 self.lasthops.append(router)
-        self.interfaces_pred: List[Interface] = [i for i in graph.interfaces.values() if i.pred and not i.mpls]
+        self.interfaces_pred: List[Interface] = [i for i in graph.interfaces.values() if i.pred]
         self.previous_updates = []
 
     def annotate_router(self, router: Router):
