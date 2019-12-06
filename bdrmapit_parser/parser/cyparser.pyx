@@ -32,6 +32,7 @@ cdef class ParseResults:
         self.spoofing = set()
         self.echos = set()
         self.cycles = set()
+        self.loopadjs = set()
 
     def __str__(self):
         return 'Addrs {:,d} Adjs {:,d} DPs {:,d} MPLS {:,d} S {:,d} E {:,d} C {:,d}'.format(len(self.addrs), len(self.adjs), len(self.dps), len(self.mpls), len(self.spoofing), len(self.echos), len(self.cycles))

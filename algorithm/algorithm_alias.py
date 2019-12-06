@@ -343,11 +343,11 @@ class Bdrmapit:
                 return rsucc_asn
             if DEBUG:
                 for origin in origins:
-                    print('Origin {}: RSUCC overlap {} ? SUCC overlap {}'.format(origin, len(router.dests & rsucc_cone), len(router.dests & self.bgp.cone[origin])))
-                print('\tASes not in customer cone for {}'.format(rsucc_asn))
-                for dasn in router.dests:
-                    if dasn not in rsucc_cone and dasn != rsucc_asn:
-                        print('\t\t{}, in succ ASN cone {}'.format(dasn, dasn in self.bgp.cone[succ_asn]))
+                    print('\tOrigin {}: RSUCC overlap {} ? SUCC overlap {}'.format(origin, len(router.dests & rsucc_cone), len(router.dests & self.bgp.cone[origin])))
+                # print('\tASes not in customer cone for {}'.format(rsucc_asn))
+                # for dasn in router.dests:
+                #     if dasn not in rsucc_cone and dasn != rsucc_asn:
+                #         print('\t\t{}, in succ ASN cone {}'.format(dasn, dasn in self.bgp.cone[succ_asn]))
             # Otherwise, ignore vote
             return -1
 
@@ -612,8 +612,8 @@ class Bdrmapit:
             overlap = iasns.keys() & succs.keys()
             if DEBUG: print('Overlap: {}'.format(overlap))
             if overlap:
-                if DEBUG: print('Succs votes: {} < {} / 2 = {}'.format(succs[asn], sum(succs.values()), sum(succs.values()) / 2))
-                if succs[asn] < sum(succs.values()) / 2:
+                if DEBUG: print('Succs votes: {} < (2 * {}) / 3 = {}'.format(succs[asn], sum(succs.values()), (2 * sum(succs.values())) / 3))
+                if succs[asn] < (2 * sum(succs.values())) / 3:
                     oasns = max_num(overlap, key=votes.__getitem__)
                     if len(oasns) == 1:
                         oasn = oasns[0]
