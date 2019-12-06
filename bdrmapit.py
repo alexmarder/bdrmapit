@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 import json
 import os
-import pickle
 import sqlite3
 import sys
 from argparse import ArgumentParser
@@ -10,16 +9,16 @@ from jsonschema import validate
 from traceutils.as2org import AS2Org
 from traceutils.bgp import BGP
 from traceutils.progress import Progress
-from traceutils.radix.ip2as import create_table, IP2AS
+from traceutils.radix.ip2as import create_table
 
 from algorithm.algorithm_alias import Bdrmapit
-from algorithm.parse_results_container import Container
+from container.container import Container
 from bdrmapit_parser.algorithm.updates_dict import UpdateObj, Updates
 from bdrmapit_parser.graph.node import Interface, Router
-from bdrmapit_parser.pyparser import TraceFile, OutputType, parse_parallel, create_dict, parse_sequential
+import traceparser as tp
+from traceparser import TraceFile, OutputType
 
-
-def save_annotations(filename, bdrmapit: Bdrmapit, rupdates=None, iupdates=None, container: Container = None):
+def save_annotations(filename, bdrmapit: Bdrmapit, rupdates=None, iupdates=None):
     if os.path.exists(filename):
         os.remove(filename)
     con = sqlite3.connect(filename)
@@ -63,14 +62,6 @@ def save_annotations(filename, bdrmapit: Bdrmapit, rupdates=None, iupdates=None,
             itype = iupdate.utype
         row = {'addr': addr, 'router': router.name, 'asn': rasn, 'org': rorg, 'conn_asn': iasn, 'conn_org': iorg, 'rtype': rtype, 'itype': itype}
         values.append(row)
-    # if container is not None:
-    #     echos_cycles = (container.echos | container.cycles) - bdrmapit.graph.interfaces.keys()
-    #     pb = Progress(len(echos_cycles), 'Adding echos and cycles', increment=1000000)
-    #     for addr in pb.iterator(echos_cycles):
-    #         asn = container.ip2as[addr]
-    #         org = container.as2org[asn]
-    #         row = {'addr': addr, 'router': addr, 'asn': asn, 'org': org, 'conn_asn': asn, 'conn_org': org, 'rtype': -1, 'itype': -1}
-    #         values.append(row)
     con.executemany('insert into annotation (addr, router, asn, org, conn_asn, conn_org, rtype, itype) values (:addr, :router, :asn, :org, :conn_asn, :conn_org, :rtype, :itype)', values)
     con.commit()
 
@@ -137,17 +128,16 @@ def main():
     validate(config, schema)
 
     ip2as = create_table(config['ip2as'])
+    as2org = AS2Org(config['as2org']['as2org'], config['as2org'].get('additional'))
 
     if 'graph' in config:
-        with open(config['graph'], 'rb') as f:
-            sys.stdout.write('Unpickling graph.')
-            results = pickle.load(f)
-            sys.stdout.write(' Done.\n')
+        sys.stdout.write('Unpickling graph.')
+        prep = Container.load(config['graph'], ip2as, as2org)
+        sys.stdout.write(' Done.\n')
     elif args.graph:
-        with open(args.graph, 'rb') as f:
-            sys.stdout.write('Unpickling graph.')
-            results = pickle.load(f)
-            sys.stdout.write(' Done.\n')
+        sys.stdout.write('Unpickling graph.')
+        prep = Container.load(args.graph, ip2as, as2org)
+        sys.stdout.write(' Done.\n')
     else:
         if 'warts' not in config and 'atlas' not in config and 'atlas-odd' not in config:
             print('Either "warts", "atlas" or both must be specified in the configuration json.', file=sys.stderr)
@@ -176,24 +166,16 @@ def main():
                 files.extend(TraceFile(file, OutputType.ATLAS_ODD) for file in atlas['files-list'])
         Progress.message('Files: {:,d}'.format(len(files)))
 
-        if config['processes'] > 1:
-            parseres = parse_parallel(files, ip2as, config['processes'])
-        else:
-            parseres = parse_sequential(files, ip2as)
-        print('Serializing graph')
-        results = build_graph_json(parseres, ip2as)
+        parseres = tp.run(files, ip2as, config['processes'])
         if args.graph_only:
-            with open(args.output, 'wb') as f:
-                pickle.dump(results, f)
+            parseres.dump(args.output)
             return
+        prep = Container(ip2as, as2org, parseres)
 
-    as2org = AS2Org(config['as2org']['as2org'], config['as2org'].get('additional'))
     bgp = BGP(config['as-rels']['rels'], config['as-rels']['cone'])
 
     nodes_file = config.get('aliases')
-    prep = Container(ip2as, as2org, **results)
     graph = prep.construct(nodes_file=nodes_file)
-    # graph = construct_graph(results['addrs'], results['nexthop'], results['multi'], results['dps'], results['mpls'], ip2as, as2org, nodes_file=nodes_file)
 
     bdrmapit = Bdrmapit(graph, as2org, bgp, strict=False)
     bdrmapit.set_dests()
@@ -201,6 +183,7 @@ def main():
     bdrmapit.graph_refinement(bdrmapit.routers_succ, bdrmapit.interfaces_pred, iterations=config.get('max_iterations', 10))
 
     save_annotations(args.output, bdrmapit)
+    save_ixps(args.output, bdrmapit)
     if args.nodes_as:
         save_node_as(args.nodes_as, bdrmapit)
 

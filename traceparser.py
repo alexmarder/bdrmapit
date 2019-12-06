@@ -163,25 +163,25 @@ def parse_parallel(files, ip2as: IP2AS, poolsize):
 
 def run(files, ip2as: IP2AS, poolsize, output=None):
     poolsize = min(len(files), poolsize)
-    results = parse_parallel(files, ip2as, poolsize) if poolsize == 1 else parse_sequential(files, ip2as)
+    results = parse_parallel(files, ip2as, poolsize) if poolsize != 1 else parse_sequential(files, ip2as)
     if output:
         results.dump(output)
     return results
 
 def main():
     parser = ArgumentParser()
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument('-f', '--files', help='File with list of newline-separated filenames.')
-    group.add_argument('-F', '--filelist', nargs='+', help='List of filenames, space separated.')
+    parser.add_argument('-w', '--wfiles', help='File with list of newline-separated filenames.')
+    parser.add_argument('-W', '--wfilelist', nargs='+', help='List of filenames, space separated.')
     parser.add_argument('-i', '--ip2as', required=True)
     parser.add_argument('-p', '--poolsize', type=int, default=1)
     parser.add_argument('-o', '--output', required=True)
     args = parser.parse_args()
-    if args.files:
-        with File2(args.files) as f:
-            files = [line.strip() for line in f if line[0] != '#']
-    else:
-        files = args.filelist
+    files = []
+    if args.wfiles:
+        with File2(args.wfiles) as f:
+            files.extend(TraceFile(line.strip(), OutputType.WARTS) for line in f if line[0] != '#')
+    if args.wfilelist:
+        files.extend(TraceFile(file, OutputType.WARTS) for file in args.wfilelist)
     ip2as = create_table(args.ip2as)
     run(files, ip2as, args.poolsize, args.output)
 

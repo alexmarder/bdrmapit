@@ -5,7 +5,7 @@ from Cython.Build import cythonize
 
 
 extensions_names = {
-    'bdrmapit_parser.parser.cyparser': ['bdrmapit_parser/parser/cyparser.pyx'],
+    # 'bdrmapit_parser.parser.cyparser': ['bdrmapit_parser/parser/cyparser.pyx'],
     'bdrmapit_parser.graph.node': ['bdrmapit_parser/graph/node.pyx'],
     'bdrmapit_parser.graph.construct': ['bdrmapit_parser/graph/construct.pyx'],
     'bdrmapit_parser.algorithm.updates_dict': ['bdrmapit_parser/algorithm/updates_dict.pyx'],
