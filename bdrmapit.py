@@ -16,7 +16,7 @@ from algorithm.algorithm_alias import Bdrmapit
 from algorithm.parse_results_container import Container
 from bdrmapit_parser.algorithm.updates_dict import UpdateObj
 from bdrmapit_parser.graph.node import Interface, Router
-from bdrmapit_parser.parser.cyparser import TraceFile, OutputType, parse_parallel, build_graph_json, parse_sequential
+from bdrmapit_parser.pyparser import TraceFile, OutputType, parse_parallel, create_dict, parse_sequential
 
 
 def save_annotations(filename, bdrmapit: Bdrmapit, rupdates=None, iupdates=None, container: Container = None):
