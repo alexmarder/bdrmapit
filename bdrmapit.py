@@ -14,7 +14,7 @@ from traceutils.radix.ip2as import create_table, IP2AS
 
 from algorithm.algorithm_alias import Bdrmapit
 from algorithm.parse_results_container import Container
-from bdrmapit_parser.algorithm.updates_dict import UpdateObj
+from bdrmapit_parser.algorithm.updates_dict import UpdateObj, Updates
 from bdrmapit_parser.graph.node import Interface, Router
 from bdrmapit_parser.parser.cyparser import TraceFile, OutputType, parse_parallel, build_graph_json, parse_sequential
 
@@ -74,6 +74,35 @@ def save_annotations(filename, bdrmapit: Bdrmapit, rupdates=None, iupdates=None,
     con.executemany('insert into annotation (addr, router, asn, org, conn_asn, conn_org, rtype, itype) values (:addr, :router, :asn, :org, :conn_asn, :conn_org, :rtype, :itype)', values)
     con.commit()
 
+def save_ixps(filename, bdrmapit: Bdrmapit, rupdates: Updates = None):
+    if rupdates is None:
+        rupdates = bdrmapit.rupdates
+    con = sqlite3.connect(filename)
+    cur = con.cursor()
+    cur.execute('drop table if EXISTS ixp')
+    cur.execute('''CREATE TABLE IF NOT EXISTS ixp(
+        addr TEXT,
+        router TEXT,
+        asn INT,
+        org TEXT,
+        conn_asn INT,
+        conn_org TEXT,
+        pid INT
+    )''')
+    values = []
+    for router in bdrmapit.routers_succ:
+        conn_asn = rupdates[router].asn
+        conn_org = bdrmapit.as2org[conn_asn]
+        for isucc in router.succ:
+            if isucc.asn <= -100:
+                pid = (isucc.asn * -1) - 100
+                rsucc = isucc.router
+                asn = rupdates[rsucc].asn
+                org = bdrmapit.as2org[asn]
+                value = {'addr': isucc.addr, 'router': router.name, 'asn': asn, 'org': org, 'conn_asn': conn_asn, 'conn_org': conn_org, 'pid': pid}
+                values.append(value)
+    cur.executemany('insert into ixp (addr, router, asn, org, conn_asn, conn_org, pid) VALUES (:addr, :router, :asn, :org, :conn_asn, :conn_org, :pid)', values)
+    con.commit()
 
 def save_node_as(filename, bdrmapit: Bdrmapit):
     with open(filename, 'w') as f:
@@ -89,7 +118,6 @@ def save_node_as(filename, bdrmapit: Bdrmapit):
                 else:
                     method = 'refinement'
                 f.write('node.AS {} {} {}\n'.format(router.name, update.asn, method))
-
 
 def main():
     parser = ArgumentParser()
@@ -175,7 +203,6 @@ def main():
     save_annotations(args.output, bdrmapit)
     if args.nodes_as:
         save_node_as(args.nodes_as, bdrmapit)
-
 
 if __name__ == '__main__':
     main()
