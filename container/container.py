@@ -23,9 +23,15 @@ class Container:
         self.dps = None
 
     @classmethod
-    def load(cls, file, ip2as, as2org):
-        results = ParseResults.load(file)
-        return cls(ip2as, as2org, results)
+    def load(cls, ip2as, as2org, *files):
+        allresults = None
+        for file in files:
+            results = ParseResults.load(file)
+            if allresults is None:
+                allresults = results
+            else:
+                allresults.update(results)
+        return cls(ip2as, as2org, allresults)
 
     def alladdrs(self):
         return set(self.addrs) | set(self.parseres.echos)

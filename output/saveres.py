@@ -4,7 +4,7 @@ import sqlite3
 from traceutils.progress import Progress
 from traceutils.radix.ip2as import IP2AS
 
-from algorithm.algorithm_alias import Bdrmapit
+from algorithm.algorithm import Bdrmapit
 from bdrmapit_parser.algorithm.updates_dict import Updates, UpdateObj
 from bdrmapit_parser.graph.node import Interface, Router
 from traceparser import ParseResults
@@ -17,8 +17,10 @@ class Save:
         self.bdrmapit = bdrmapit
         self.rupdates = rupdates if rupdates is not None else bdrmapit.rupdates
         self.iupdates = iupdates if iupdates is not None else bdrmapit.iupdates
-        if os.path.exists(filename):
-            os.remove(filename)
+        exists = os.path.exists(filename)
+        if not exists or replace:
+            if exists:
+                os.remove(filename)
             dir_path = os.path.dirname(os.path.realpath(__file__))
             with open(os.path.join(dir_path, 'tables.sql')) as f:
                 script = f.read()
