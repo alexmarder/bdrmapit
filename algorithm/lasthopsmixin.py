@@ -102,7 +102,8 @@ class LastHopsMixin:
             intersection = self.multi_customers(dests) & self.multi_providers(iasns)
             if len(intersection) == 1:
                 return peek(intersection), 20000
-        asn = min(dests, key=lambda x: (self.bgp.conesize[x], -x))
+        # asn = min(dests, key=lambda x: (self.bgp.conesize[x], -x))
+        asn = max(dests, key=lambda x: (self.bgp.conesize[x], -x))
         return asn, MISSING_NOINTER
 
     def annotate_lasthop(self, router: Router):
@@ -121,10 +122,13 @@ class LastHopsMixin:
             return min(overlap, key=lambda x: (self.bgp.conesize[x], -x)), HEAPED
         # No overlapping ASes, use relationship ASes
         rels = {dasn for dasn in dests if self.any_rels(dasn, iasns)}
+        if debug.DEBUG:
+            print({(dasn, self.bgp.conesize[dasn]) for dasn in dests})
         if debug.DEBUG: print('Rels: {}'.format(rels))
         if rels:
             # Select overlapping or relationship AS with largest customer cone
-            return min(rels, key=lambda x: (self.bgp.conesize[x], -x)), HEAPED
+            # return min(rels, key=lambda x: (self.bgp.conesize[x], -x)), HEAPED
+            return max(rels, key=lambda x: (self.bgp.conesize[x], -x)), HEAPED
             # return max(rels, key=lambda x: (len(self.bgp.cone[x] & dests), -x)), HEAPED
         # No relationship between any origin AS and any destination AS
         return self.annotate_lasthop_norels(dests, iasns)

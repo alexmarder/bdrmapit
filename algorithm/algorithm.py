@@ -229,9 +229,10 @@ class Bdrmapit(LastHopsMixin, VRFMixin, DebugMixin, HelpersMixin):
             # Subsequent AS
             sasn = peek(succs) if len(succs) == 1 else max(succs, key=lambda x: (self.bgp.conesize[x], -x))
             # Subsequent AS is not in link origin ASes and is a customer of a link origin AS
-            if sasn not in sasn_origins[sasn] and sasn in self.multi_customers(sasn_origins[sasn]):
-                if debug.DEBUG: print('Provider: {}->{}'.format(sasn_origins[sasn], sasn))
-                return sasn, utype + SINGLE_SUCC_4
+            if sasn not in sasn_origins[sasn]:
+                if sasn in self.multi_customers(sasn_origins[sasn]):
+                    if debug.DEBUG: print('Provider: {}->{}'.format(sasn_origins[sasn], sasn))
+                    return sasn, utype + SINGLE_SUCC_4
 
         # Create votes counter and add interface AS
         votes = succs + iasns
@@ -305,6 +306,19 @@ class Bdrmapit(LastHopsMixin, VRFMixin, DebugMixin, HelpersMixin):
                     if debug.DEBUG: print('Pred Num: {}'.format(len(isucc.pred)))
                     asn = sasn  # select the subsequent interface annotation
                     utype += 5000000
+            if not asn and len(router.succ) == 1:
+                if len(router.interfaces) == 1:
+                    isucc = peek(router.succ)  # single subsequent interface
+                    sasn = self.iupdates.asn(isucc)  # annotation for subsequent interface
+                    if sasn == -1:
+                        sasn = isucc.asn
+                    rasn = router.interfaces[0].asn
+                    reltype = self.bgp.reltype(rasn, sasn)
+                    if debug.DEBUG: print('One interface: {} -- {} == {}'.format(rasn, sasn, reltype))
+                    if reltype != 1 and reltype != 2:
+                        if sasn in router.dests and rasn not in router.dests:
+                            asn = sasn
+                            utype += 16000
             # Tiebreaker 2 -- use only when tiebreaker 1 does not select an AS (most of the time)
             if not asn:
                 if debug.DEBUG: print('Conesizes: {}'.format({a: self.bgp.conesize[a] for a in asns}))
