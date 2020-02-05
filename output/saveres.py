@@ -81,6 +81,25 @@ class Save:
         con.commit()
         con.close()
 
+    def save_links(self):
+        values = []
+        for isucc in self.bdrmapit.interfaces_pred:
+            rsucc = isucc.router
+            asn = self.rupdates[rsucc].asn
+            org = self.bdrmapit.as2org[asn]
+            ixp = isucc.asn <= -100
+            for router in isucc.pred:
+                conn_asn = self.rupdates[router].asn
+                conn_org = self.bdrmapit.as2org[conn_asn]
+                if conn_org != org:
+                    value = {'addr': isucc.addr, 'router': router.name, 'asn': asn, 'org': org, 'conn_asn': conn_asn, 'conn_org': conn_org, 'ixp': ixp}
+                    values.append(value)
+        con = sqlite3.connect(self.filename)
+        cur = con.cursor()
+        cur.executemany('INSERT INTO link (addr, router, asn, org, conn_asn, conn_org, ixp) VALUES (:addr, :router, :asn, :org, :conn_asn, :conn_org, :ixp)', values)
+        con.commit()
+        con.close()
+
     def extras(self, parseres: ParseResults, ip2as: IP2AS):
         values = []
         loops = set()

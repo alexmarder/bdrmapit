@@ -19,7 +19,7 @@ setup(
     name="bdrmapit_parser",
     version='0.1.1',
     packages=find_packages(),
-    install_requires=['cython', 'jsonschema', 'deprecated', 'traceutils'],
+    install_requires=['cython', 'jsonschema', 'deprecated', 'traceutils>=6.15.7'],
     cmdclass={'build_ext': build_ext},
     ext_modules=cythonize(
         extensions,
