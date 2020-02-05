@@ -23,11 +23,13 @@ It’s easiest to create a new python environment for <tt>bdrmapIT</tt>. Anythin
 First, install Anaconda according to the instructions there. Then, create the environment to install the <tt>bdrmapIT</tt> packages. Here, the environment name <tt>bdrmapit</tt> is used, but any name works.
 
 ```bash
-# create environment with latest version of python3
-conda create -n bdrmapit python=3
+# create environment with python3.7
+conda create -n bdrmapit python=3.7
 # activate the new environment
 conda activate bdrmapit
 ```
+
+**cython currently prevents using python >= 3.8**
 
 # Installing Traceutils
 The first step is to install <tt>traceutils</tt>, a prerequisite for creating prefix-to-AS mappings and running <tt>bdrmapIT</tt>. I don’t think the installation will work on Windows, but should work on macos and Linux distributions. To install, follow the directions in the [<tt>traceutils</tt> readme](https://github.com/alexmarder/traceutils).
