@@ -44,6 +44,7 @@ and compile the cython code.
 ```bash
 git clone https://github.com/alexmarder/bdrmapit
 cd bdrmapit
+pip install -r requirements.txt
 python setup.py build_ext --inplace
 ```
 
