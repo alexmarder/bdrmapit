@@ -128,7 +128,14 @@ class LastHopsMixin:
         if rels:
             # Select overlapping or relationship AS with largest customer cone
             # return min(rels, key=lambda x: (self.bgp.conesize[x], -x)), HEAPED
-            return max(rels, key=lambda x: (self.bgp.conesize[x], -x)), HEAPED
+            if len(rels) >= 4:
+                return max(iasns, key=lambda x: sum(self.bgp.rel(x, dasn) for dasn in rels)), HEAPED
+            maxasn = max(rels, key=lambda x: (self.bgp.conesize[x], -x))
+            if len(dests - self.bgp.cone[maxasn]) > 4:
+                if debug.DEBUG:
+                    print('Uncovered dests for {}: {}'.format(maxasn, dests - self.bgp.cone[maxasn]))
+                return max(iasns, key=lambda x: sum(self.bgp.rel(x, dasn) for dasn in rels)), HEAPED
+            return maxasn, HEAPED
             # return max(rels, key=lambda x: (len(self.bgp.cone[x] & dests), -x)), HEAPED
         # No relationship between any origin AS and any destination AS
         return self.annotate_lasthop_norels(dests, iasns)

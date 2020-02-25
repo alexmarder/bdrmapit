@@ -9,6 +9,7 @@ from traceutils.utils.utils import max_num, peek
 
 from algorithm import debug
 from algorithm.debug import DebugMixin
+from algorithm.firsthopmixin import FirstHopMixin
 from algorithm.helpersmixin import HelpersMixin
 from algorithm.lasthopsmixin import LastHopsMixin
 from algorithm.utypes import HIDDEN_NOINTER, SINGLE_SUCC_4, ALLPEER_SUCC, VOTE_SINGLE, \
@@ -20,14 +21,15 @@ from bdrmapit_parser.graph.node import Router, Interface
 from vrf.vrfedge import VRFEdge
 
 
-class Bdrmapit(LastHopsMixin, VRFMixin, DebugMixin, HelpersMixin):
+class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, DebugMixin, HelpersMixin):
 
-    def __init__(self, graph: Graph, as2org: AS2Org, bgp: BGP, strict=True, skipua=False, hidden_reverse=True):
+    def __init__(self, graph: Graph, as2org: AS2Org, bgp: BGP, strict=True, skipua=False, hidden_reverse=True, norelpeer: Set[int]=None):
         self.graph = graph
         self.as2org = as2org
         self.bgp = bgp
         self.rupdates = Updates()
         self.iupdates = Updates()
+        self.caches = Updates()
         self.routers_mpls: List[Router] = []
         self.lasthops: List[Router] = []
         self.routers_succ: List[Router] = []
@@ -46,6 +48,7 @@ class Bdrmapit(LastHopsMixin, VRFMixin, DebugMixin, HelpersMixin):
         self.strict = strict
         self.skipua = skipua
         self.hidden_reverse = hidden_reverse
+        self.norelpeer = norelpeer
 
     def router_heuristics(self, router: Router, isucc: Interface, origins: Set[int], iasns: TCounter[int]):
         rsucc: Router = isucc.router  # subsequent router
@@ -59,6 +62,10 @@ class Bdrmapit(LastHopsMixin, VRFMixin, DebugMixin, HelpersMixin):
         # If subsequent interface AS has no known origin, use subsequent router AS
         if isucc.asn == 0:
             return rsucc_asn if not self.skipua else -1
+
+        # if iupdate:
+        #     if iupdate.asn == -2:
+        #         return -1
 
         if iupdate and rsucc_asn == isucc.asn:
             succ_asn = iupdate.asn
@@ -195,7 +202,7 @@ class Bdrmapit(LastHopsMixin, VRFMixin, DebugMixin, HelpersMixin):
         else:
             return asn, HIDDEN_NOINTER + utype
 
-    def annotate_router(self, router: Router):
+    def annotate_router(self, router: Router, **kwargs):
         isucc: Union[Interface, VRFEdge]
         utype: int = 0
 
@@ -262,6 +269,10 @@ class Bdrmapit(LastHopsMixin, VRFMixin, DebugMixin, HelpersMixin):
                         if votes[iasn] > max(votes.values()) / 2:
                             # Select the router origin AS
                             return iasn, utype + ALLPEER_SUCC
+                        if votes[iasn] > max(votes.values()) / 4 and sum(self.bgp.peer_rel(iasn, sasn) for sasn in succs) >= 2:
+                            return iasn, utype + ALLPEER_SUCC
+                        if self.norelpeer is not None and iasn in self.norelpeer and votes[iasn] > max(votes.values()) / 4 and len(succs) >= 3:
+                            return iasn, utype + ALLPEER_SUCC
 
         # Apply vote heuristics
         # asns -- maximum vote getters, often one AS, but will contain all tied ASes
@@ -274,7 +285,7 @@ class Bdrmapit(LastHopsMixin, VRFMixin, DebugMixin, HelpersMixin):
             # Otherwise, find vote ASes with relationship to a router interface AS
             votes_rels: List[int] = [
                 vasn for vasn in votes if any(
-                    vasn == iasn or self.bgp.rel(iasn, vasn) or self.as2org[iasn] == self.as2org[vasn]
+                    iasn in self.norelpeer or vasn == iasn or self.bgp.rel(iasn, vasn) or self.as2org[iasn] == self.as2org[vasn]
                     for iasn in iasns
                 )
             ]
@@ -294,12 +305,12 @@ class Bdrmapit(LastHopsMixin, VRFMixin, DebugMixin, HelpersMixin):
         else:
             asn = None
             # Tiebreaker 1
-            if len(router.succ) == 1:
+            if len(router.succ) == 1 and router.nexthop:
                 isucc = peek(router.succ)  # single subsequent interface
                 sasn = self.iupdates.asn(isucc)  # annotation for subsequent interface
                 if len(router.interfaces) == 1 and sasn == -1:
                     rasn = router.interfaces[0].asn
-                    if self.bgp.peer_rel(rasn, isucc.asn):
+                    if self.bgp.peer_rel(rasn, isucc.asn) or not self.bgp.rel(rasn, isucc.asn):
                         return -1, 6000000
                 # If annotation was used, is one of the tied ASes, and the subsequent interface has multiple incoming edges
                 if sasn in succs and sasn in asns and len(isucc.pred) > 1:
@@ -341,6 +352,10 @@ class Bdrmapit(LastHopsMixin, VRFMixin, DebugMixin, HelpersMixin):
                             asn = oasn
                             utype += 1000000
 
+        # if not router.nexthop and iasns and asn not in iasns and all(self.bgp.peer_rel(iasn, asn) or not self.bgp.rel(iasn, asn) for iasn in iasns):
+        #     asn = min(iasns, key=lambda x: (not (x in sasn_origins[x] and x in succs), self.bgp.conesize[x], -x))
+        #     utype += 7000000
+
         # Check for hidden AS
         # If no relationship between selected AS and an IR origin AS
         if iasns and all(asn != iasn and not self.bgp.rel(iasn, asn) for iasn in iasns):
@@ -371,20 +386,24 @@ class Bdrmapit(LastHopsMixin, VRFMixin, DebugMixin, HelpersMixin):
             votes[asn] += num
         if debug.DEBUG: print('Votes: {}'.format(votes))
         if len(votes) == 1:
-            return peek(votes), 1 if len(edges) > 1 else 0
-        asns = max_num(votes, key=votes.__getitem__)
-        if debug.DEBUG: print('MaxNum: {}'.format(asns))
-        rels = [asn for asn in asns if interface.asn == asn or self.bgp.rel(interface.asn, asn)]
-        if not rels:
-            rels = asns
-        if debug.DEBUG:
-            print('Rels: {}'.format(rels))
-            print('Sorted Rels: {}'.format(sorted(rels, key=lambda x: (
-                x != interface.asn, -self.bgp.provider_rel(interface.asn, x), -self.bgp.conesize[x], x))))
-        # asn = max(asns, key=lambda x: (x == interface.asn, bdrmapit.bgp.conesize[x], -x))
-        # asn = min(rels, key=lambda x: (x != interface.asn, -self.bgp.provider_rel(interface.asn, x), -self.bgp.conesize[x], x))
-        asn = min(rels, key=lambda x: (x != interface.asn, -self.bgp.conesize[x], x))
-        utype = 1 if len(asns) == 1 and len(edges) > 1 else 2
+            asn = peek(votes)
+            utype = 1 if len(edges) > 1 else 0
+        else:
+            asns = max_num(votes, key=votes.__getitem__)
+            if debug.DEBUG: print('MaxNum: {}'.format(asns))
+            rels = [asn for asn in asns if interface.asn == asn or self.bgp.rel(interface.asn, asn)]
+            if not rels:
+                rels = asns
+            if debug.DEBUG:
+                print('Rels: {}'.format(rels))
+                print('Sorted Rels: {}'.format(sorted(rels, key=lambda x: (
+                    x != interface.asn, -self.bgp.provider_rel(interface.asn, x), -self.bgp.conesize[x], x))))
+            # asn = max(asns, key=lambda x: (x == interface.asn, bdrmapit.bgp.conesize[x], -x))
+            # asn = min(rels, key=lambda x: (x != interface.asn, -self.bgp.provider_rel(interface.asn, x), -self.bgp.conesize[x], x))
+            asn = min(rels, key=lambda x: (x != interface.asn, -self.bgp.conesize[x], x))
+            utype = 1 if len(asns) == 1 and len(edges) > 1 else 2
+        if asn == -1:
+            return -2, 2
         return asn, utype
 
     def annotate_interfaces(self, interfaces: Collection[Interface]):

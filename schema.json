@@ -55,6 +55,25 @@
         }
       }
     },
+    "jsonwarts": {
+      "description": "Warts traceroute files, such as those created by scamper, in json format",
+      "type": "object",
+      "properties": {
+        "files": {
+          "description": "File with traceroute files, newline separated",
+          "type": "string"
+        },
+        "files-list": {
+          "description": "List of traceroute filenames",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      }
+    },
     "atlas": {
       "description": "Warts traceroute files, such as those created by scamper",
       "type": "object",

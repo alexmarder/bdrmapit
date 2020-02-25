@@ -47,7 +47,7 @@ class DebugMixin(ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def annotate_router(self, router: Router):
+    def annotate_router(self, router: Router, **kwargs):
         raise NotImplementedError()
 
     @abstractmethod
@@ -71,7 +71,7 @@ class DebugMixin(ABC):
             result = self.annotate_lasthop(r)
         print(result)
 
-    def test_router(self, nid, rupdates=None, iupdates=None):
+    def test_router(self, nid, rupdates=None, iupdates=None, **kwargs):
         with Debug(self, rupdates=rupdates, iupdates=iupdates):
             try:
                 r: Router = self.graph.routers[nid]
@@ -80,7 +80,7 @@ class DebugMixin(ABC):
             if r.vrf:
                 result = self.annotate_router_vrf(r)
             else:
-                result = self.annotate_router(r)
+                result = self.annotate_router(r, **kwargs)
         print(result)
 
     def test_interface(self, addr, rupdates=None, iupdates=None):

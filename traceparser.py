@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 import pickle
 from argparse import ArgumentParser
-from collections import Counter
+from collections import Counter, defaultdict
 from enum import Enum
 from multiprocessing.pool import Pool
 from typing import Optional
@@ -11,7 +11,7 @@ from traceutils.progress.bar import Progress
 from traceutils.radix.ip2as import IP2AS, create_table
 from traceutils.scamper.atlas import AtlasReader
 from traceutils.scamper.hop import ICMPType
-from traceutils.scamper.warts import WartsReader
+from traceutils.scamper.warts import WartsReader, WartsJsonReader
 from traceutils.scamper.pyatlas import AtlasReader as AtlasOddReader
 
 _ip2as: Optional[IP2AS] = None
@@ -20,6 +20,7 @@ class OutputType(Enum):
     WARTS = 1
     ATLAS = 2
     ATLAS_ODD = 3
+    JSONWARTS = 4
 
 class TraceFile:
     def __init__(self, filename, type):
@@ -33,7 +34,6 @@ class ParseResults:
 
     def __init__(self):
         self.addrs = set()
-        # self.adjs = set()
         self.dps = set()
         self.spoofing = set()
         self.echos = set()
@@ -41,11 +41,13 @@ class ParseResults:
         self.loopadjs = Counter()
         self.nextadjs = Counter()
         self.multiadjs = Counter()
+        self.first = Counter()
 
     def __repr__(self):
-        return 'Addrs {addrs:,d} N {nhop:,d} M {multi:,d} DPs {dests:,d} S {spoof:,d} E {echo:,d} C {cycle:,d} L {loop:,d}'.format(
+        return 'Addrs {addrs:,d} N {nhop:,d} M {multi:,d} DPs {dests:,d} S {spoof:,d} E {echo:,d} C {cycle:,d} L {loop:,d} F {first:,d}'.format(
             addrs=len(self.addrs), nhop=len(self.nextadjs), multi=len(self.multiadjs), dests=len(self.dps),
-            spoof=len(self.spoofing), echo=len(self.echos), cycle=len(self.cycles), loop=len(self.loopadjs)
+            spoof=len(self.spoofing), echo=len(self.echos), cycle=len(self.cycles), loop=len(self.loopadjs),
+            first=len(self.first)
         )
 
     def __str__(self):
@@ -66,57 +68,45 @@ class ParseResults:
         return results
 
     def update(self, results):
-        self.addrs.update(results.addrs)
-        # self.adjs.update(results.adjs)
-        self.dps.update(results.dps)
-        self.spoofing.update(results.spoofing)
-        self.echos.update(results.echos)
-        self.cycles.update(results.cycles)
-        self.loopadjs.update(results.loopadjs)
-        self.nextadjs.update(results.nextadjs)
-        self.multiadjs.update(results.multiadjs)
+        for k, v in vars(results).items():
+            getattr(self, k).update(v)
 
 def parse(tfile: TraceFile):
     results: ParseResults = ParseResults()
-    addrs = results.addrs
-    # adjs = results.adjs
-    dps = results.dps
-    spoofing = results.spoofing
-    echos = results.echos
-    cycles = results.cycles
-    loopadjs = results.loopadjs
-    nextadjs = results.nextadjs
-    multiadjs = results.multiadjs
-    filename = tfile.filename
-    output_type = tfile.type
 
-    if output_type == OutputType.WARTS:
-        f = WartsReader(filename, ping=False)
-    elif output_type == OutputType.ATLAS:
-        f = AtlasReader(filename)
-    elif output_type == OutputType.ATLAS_ODD:
-        f = AtlasOddReader(filename)
+    if tfile.type == OutputType.WARTS:
+        f = WartsReader(tfile.filename, ping=False)
+    elif tfile.type == OutputType.ATLAS:
+        f = AtlasReader(tfile.filename)
+    elif tfile.type == OutputType.ATLAS_ODD:
+        f = AtlasOddReader(tfile.filename)
+    elif tfile.type == OutputType.JSONWARTS:
+        f = WartsJsonReader(tfile.filename)
     else:
-        raise Exception('Invalid output type: {}.'.format(output_type))
+        raise Exception('Invalid output type: {}.'.format(tfile.type))
     try:
         f.open()
         for trace in f:
             trace.prune_dups()
             trace.prune_loops()
             if trace.loop:
-                cycles.update(trace.loop)
+                results.cycles.update(trace.loop)
             hops = [h for h in trace.hops if _ip2as[h.addr] != -1]
+            if not hops: continue
+            fhop = hops[0]
+            if fhop.probe_ttl == 1:
+                results.first[tfile.filename, fhop.addr] += 1
             dst_asn = _ip2as.asn(trace.dst)
             for i in range(len(hops)):
                 x = hops[i]
-                addrs.add(x.addr)
+                results.addrs.add(x.addr)
                 if x.icmp_type != 0:
-                    dps.add((x.addr, dst_asn))
+                    results.dps.add((x.addr, dst_asn))
                 if i == len(hops) - 1:
                     break
                 y = hops[i+1]
                 if y.type == ICMPType.echo_reply or y.type == ICMPType.portping:
-                    echos.add(y.addr)
+                    results.echos.add(y.addr)
                     break
                 distance = y.probe_ttl - x.probe_ttl
                 if y.icmp_q_ttl == 0:
@@ -126,15 +116,15 @@ def parse(tfile: TraceFile):
                 elif distance < 1:
                     distance = -1
                 if y.type == ICMPType.spoofing:
-                    spoofing.add((x.addr, y.addr, distance))
+                    results.spoofing.add((x.addr, y.addr, distance))
                 else:
                     if distance == 1:
-                        nextadjs[x.addr, y.addr] += 1
+                        results.nextadjs[x.addr, y.addr] += 1
                     else:
-                        multiadjs[x.addr, y.addr] += 1
+                        results.multiadjs[x.addr, y.addr] += 1
             if trace.loop:
                 for x, y in zip(trace.loop, trace.loop[1:]):
-                    loopadjs[x.addr, y.addr] += 1
+                    results.loopadjs[x.addr, y.addr] += 1
     finally:
         f.close()
     return results

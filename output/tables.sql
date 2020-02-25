@@ -35,3 +35,13 @@ CREATE TABLE excluded (
     org     TEXT,
     reason  TEXT
 );
+
+CREATE TABLE cache(
+    addr TEXT,
+    router TEXT,
+    asn INT,
+    org TEXT,
+    conn_asn INT,
+    conn_org TEXT,
+    ixp boolean
+);

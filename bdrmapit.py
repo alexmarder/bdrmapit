@@ -45,7 +45,7 @@ def main():
         prep = Container.load(args.graph, ip2as, as2org)
         sys.stdout.write(' Done.\n')
     else:
-        if 'warts' not in config and 'atlas' not in config and 'atlas-odd' not in config:
+        if 'warts' not in config and 'atlas' not in config and 'atlas-odd' not in config and 'jsonwarts' not in config:
             print('Either "warts", "atlas" or both must be specified in the configuration json.', file=sys.stderr)
             return
         files = []
@@ -56,6 +56,13 @@ def main():
                     files.extend(TraceFile(line.strip(), OutputType.WARTS) for line in f)
             if 'files-list' in warts:
                 files.extend(TraceFile(file, OutputType.WARTS) for file in warts['files-list'])
+        if 'jsonwarts' in config:
+            jsonwarts = config['jsonwarts']
+            if 'files' in jsonwarts:
+                with open(jsonwarts['files']) as f:
+                    files.extend(TraceFile(line.strip(), OutputType.JSONWARTS) for line in f)
+            if 'files-list' in jsonwarts:
+                files.extend(TraceFile(file, OutputType.JSONWARTS) for file in jsonwarts['files-list'])
         if 'atlas' in config:
             atlas = config['atlas']
             if 'files' in atlas:
