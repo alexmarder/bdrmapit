@@ -73,7 +73,6 @@ class ParseResults:
 
 def parse(tfile: TraceFile):
     results: ParseResults = ParseResults()
-
     if tfile.type == OutputType.WARTS:
         f = WartsReader(tfile.filename, ping=False)
     elif tfile.type == OutputType.ATLAS:
@@ -125,6 +124,12 @@ def parse(tfile: TraceFile):
             if trace.loop:
                 for x, y in zip(trace.loop, trace.loop[1:]):
                     results.loopadjs[x.addr, y.addr] += 1
+    except UnicodeDecodeError:
+        print(tfile.filename)
+        raise
+    except EOFError:
+        print(tfile.filename)
+        raise
     finally:
         f.close()
     return results
@@ -153,6 +158,7 @@ def parse_parallel(files, ip2as: IP2AS, poolsize):
 
 def run(files, ip2as: IP2AS, poolsize, output=None):
     poolsize = min(len(files), poolsize)
+    print(poolsize)
     results = parse_parallel(files, ip2as, poolsize) if poolsize != 1 else parse_sequential(files, ip2as)
     if output:
         results.dump(output)
@@ -162,6 +168,8 @@ def main():
     parser = ArgumentParser()
     parser.add_argument('-w', '--wfiles', help='File with list of newline-separated filenames.')
     parser.add_argument('-W', '--wfilelist', nargs='+', help='List of filenames, space separated.')
+    parser.add_argument('-a', '--afiles', help='File with list of newline-separated filenames.')
+    parser.add_argument('-A', '--afilelist', nargs='+', help='List of filenames, space separated.')
     parser.add_argument('-i', '--ip2as', required=True)
     parser.add_argument('-p', '--poolsize', type=int, default=1)
     parser.add_argument('-o', '--output', required=True)
@@ -172,6 +180,11 @@ def main():
             files.extend(TraceFile(line.strip(), OutputType.WARTS) for line in f if line[0] != '#')
     if args.wfilelist:
         files.extend(TraceFile(file, OutputType.WARTS) for file in args.wfilelist)
+    if args.afiles:
+        with File2(args.afiles) as f:
+            files.extend(TraceFile(line.strip(), OutputType.ATLAS) for line in f if line[0] != '#')
+    if args.afilelist:
+        files.extend(TraceFile(file, OutputType.ATLAS) for file in args.afilelist)
     ip2as = create_table(args.ip2as)
     run(files, ip2as, args.poolsize, args.output)
 

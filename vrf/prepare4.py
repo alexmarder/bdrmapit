@@ -36,7 +36,6 @@ class VRFPrep(Container):
             vrfinfo = pickle.load(f)
         self.middle = vrfinfo['middle']
         self.last = vrfinfo['last']
-        # self.middle = {x: asns for x, asns in self.middle.items() if asns != {self.ip2as[x]}}
 
     def merge_edgetypes(self, toforward, forwarding):
         bedges = defaultdict(dict)

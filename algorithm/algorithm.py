@@ -4,6 +4,7 @@ from typing import Collection, List, Set, Dict, Union, Counter as TCounter, Opti
 
 from traceutils.as2org.as2org import AS2Org
 from traceutils.bgp.bgp import BGP
+from traceutils.ixps import PeeringDB
 from traceutils.progress.bar import Progress
 from traceutils.utils.utils import max_num, peek
 
@@ -23,10 +24,11 @@ from vrf.vrfedge import VRFEdge
 
 class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, DebugMixin, HelpersMixin):
 
-    def __init__(self, graph: Graph, as2org: AS2Org, bgp: BGP, strict=True, skipua=False, hidden_reverse=True, norelpeer: Set[int]=None):
+    def __init__(self, graph: Graph, as2org: AS2Org, bgp: BGP, ixpasns=None, strict=True, skipua=False, hidden_reverse=True, norelpeer: Set[int]=None):
         self.graph = graph
         self.as2org = as2org
         self.bgp = bgp
+        # self.peeringdb = peeringdb
         self.rupdates = Updates()
         self.iupdates = Updates()
         self.caches = Updates()
@@ -49,6 +51,7 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, DebugMixin, HelpersMixin)
         self.skipua = skipua
         self.hidden_reverse = hidden_reverse
         self.norelpeer = norelpeer
+        self.ixpasns = {} if ixpasns is None else ixpasns
 
     def router_heuristics(self, router: Router, isucc: Interface, origins: Set[int], iasns: TCounter[int]):
         rsucc: Router = isucc.router  # subsequent router
@@ -57,6 +60,11 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, DebugMixin, HelpersMixin)
 
         # If subsequent interface is an IXP interface, use interface AS
         if isucc.asn <= -100:
+            ixpasns = self.ixpasns.get(isucc.asn)
+            if ixpasns:
+                overlap = iasns.keys() & ixpasns
+                if len(overlap) == 1:
+                    return peek(overlap)
             return -1
 
         # If subsequent interface AS has no known origin, use subsequent router AS
@@ -67,7 +75,8 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, DebugMixin, HelpersMixin)
         #     if iupdate.asn == -2:
         #         return -1
 
-        if iupdate and rsucc_asn == isucc.asn:
+        if iupdate and self.as2org[rsucc_asn] == isucc.org:
+        # if iupdate and rsucc_asn == isucc.asn:
             succ_asn = iupdate.asn
             succ_org = iupdate.org
             if succ_asn <= 0:
@@ -145,7 +154,8 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, DebugMixin, HelpersMixin)
             return -1
 
         # TODO: Figure out something better to do here
-        if succ_asn <= 0 or (rsucc_asn > 0 and rsucc_asn != isucc.asn):
+        if succ_asn <= 0 or (rsucc_asn > 0 and self.as2org[rsucc_asn] != isucc.org):
+        # if succ_asn <= 0 or (rsucc_asn > 0 and rsucc_asn != isucc.asn):
             if debug.DEBUG:
                 if succ_asn != isucc.asn:
                     print('ugh')
@@ -261,8 +271,8 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, DebugMixin, HelpersMixin)
                 # Origin AS is not also a subsequent AS
                 if iasn not in succs:
                     # All subsequent ASes are peers of the single origin AS
-                    # if all(self.bgp.peer_rel(iasn, sasn) for sasn in succs):
-                    if all(self.bgp.peer_rel(iasn, sasn) or not self.bgp.rel(iasn, sasn) for sasn in succs):
+                    # if all(self.bgp.rel(iasn, sasn) for sasn in succs):
+                    if sum(self.bgp.peer_rel(iasn, sasn) or (self.norelpeer and iasn in self.norelpeer and not self.bgp.rel(iasn, sasn)) for sasn in succs) >= len(succs) * .85:
                         if debug.DEBUG:
                             print('All peers or norels: True')
                         # Make sure its votes are not dwarfed by subsequent AS
@@ -273,6 +283,8 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, DebugMixin, HelpersMixin)
                             return iasn, utype + ALLPEER_SUCC
                         if self.norelpeer is not None and iasn in self.norelpeer and votes[iasn] > max(votes.values()) / 4 and len(succs) >= 3:
                             return iasn, utype + ALLPEER_SUCC
+                    elif debug.DEBUG:
+                        print([sasn for sasn in succs if not (self.bgp.peer_rel(iasn, sasn) or (self.norelpeer and iasn in self.norelpeer and not self.bgp.rel(iasn, sasn)))])
 
         # Apply vote heuristics
         # asns -- maximum vote getters, often one AS, but will contain all tied ASes
@@ -283,12 +295,16 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, DebugMixin, HelpersMixin)
             asns = [othermax]
         else:
             # Otherwise, find vote ASes with relationship to a router interface AS
+            # try:
             votes_rels: List[int] = [
                 vasn for vasn in votes if any(
-                    iasn in self.norelpeer or vasn == iasn or self.bgp.rel(iasn, vasn) or self.as2org[iasn] == self.as2org[vasn]
+                    (self.norelpeer and iasn in self.norelpeer) or vasn == iasn or self.bgp.rel(iasn, vasn) or self.as2org[iasn] == self.as2org[vasn]
                     for iasn in iasns
                 )
             ]
+            # except TypeError:
+            #     print(router.name)
+            #     print(iasns)
             if debug.DEBUG: print('Vote Rels: {}'.format(votes_rels))
 
             # If only IR origin ASes remain, use all votes. Otherwise, use relationship ASes and origins
@@ -304,8 +320,19 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, DebugMixin, HelpersMixin)
             utype += VOTE_SINGLE
         else:
             asn = None
+            # Tiebreaker 0
+            # print('here')
+            # if asns:
+            #     for casn in asns:
+            #         providers = self.bgp.providers[casn]
+            #         if debug.DEBUG:
+            #             print(casn, providers)
+            #         if all(pasn in providers for pasn in asns if pasn != casn):
+            #             asn = casn
+            #             utype += 700000
+            #             break
             # Tiebreaker 1
-            if len(router.succ) == 1 and router.nexthop:
+            if asn is None and len(router.succ) == 1 and router.nexthop:
                 isucc = peek(router.succ)  # single subsequent interface
                 sasn = self.iupdates.asn(isucc)  # annotation for subsequent interface
                 if len(router.interfaces) == 1 and sasn == -1:
