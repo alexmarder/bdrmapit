@@ -6,7 +6,7 @@ from enum import Enum
 from multiprocessing.pool import Pool
 from typing import Optional
 
-from traceutils.file2.file2 import File2
+from traceutils.file2.file2 import File2#, fopen
 from traceutils.progress.bar import Progress
 from traceutils.radix.ip2as import IP2AS, create_table
 from traceutils.scamper.atlas import AtlasReader
@@ -170,6 +170,8 @@ def main():
     parser.add_argument('-W', '--wfilelist', nargs='+', help='List of filenames, space separated.')
     parser.add_argument('-a', '--afiles', help='File with list of newline-separated filenames.')
     parser.add_argument('-A', '--afilelist', nargs='+', help='List of filenames, space separated.')
+    parser.add_argument('-j', '--jfiles')
+    parser.add_argument('-J', '--jfilelist', nargs='+')
     parser.add_argument('-i', '--ip2as', required=True)
     parser.add_argument('-p', '--poolsize', type=int, default=1)
     parser.add_argument('-o', '--output', required=True)
@@ -185,6 +187,11 @@ def main():
             files.extend(TraceFile(line.strip(), OutputType.ATLAS) for line in f if line[0] != '#')
     if args.afilelist:
         files.extend(TraceFile(file, OutputType.ATLAS) for file in args.afilelist)
+    if args.jfiles:
+        with fopen(args.jfiles) as f:
+            files.extend(TraceFile(line.strip(), OutputType.JSONWARTS) for line in f if line[0] != '#')
+    if args.jfilelist:
+        files.extend(TraceFile(file, OutputType.JSONWARTS) for file in args.jfilelist)
     ip2as = create_table(args.ip2as)
     run(files, ip2as, args.poolsize, args.output)
 
