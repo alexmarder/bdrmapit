@@ -37,13 +37,13 @@ class Container:
     def alladdrs(self):
         return set(self.addrs) | set(self.parseres.echos)
 
-    def filter_addrs(self):
+    def filter_addrs(self, loop=True):
         addrs = set()
         firstaddrs = {addr for _, addr in self.parseres.first}
         adjs = self.parseres.nextadjs + self.parseres.multiadjs
         pb = Progress(len(adjs), 'Filtering addrs', increment=1000000, callback=lambda: '{:,d}'.format(len(addrs)))
         for (x, y), n in pb.iterator(adjs.items()):
-            if n > self.parseres.loopadjs.get((x, y), 0):
+            if not loop or n > self.parseres.loopadjs.get((x, y), 0):
                 addrs.add(x)
                 addrs.add(y)
                 firstaddrs.discard(y)
@@ -51,13 +51,13 @@ class Container:
         self.addrs |= {addr for addr, _ in self.parseres.dps}
         self.firstaddrs = {(file, addr) for file, addr in self.parseres.first if addr in firstaddrs}
 
-    def create_edges(self):
+    def create_edges(self, loop=True):
         nexthops = defaultdict(set)
         kept = 0
         pb = Progress(len(self.parseres.nextadjs), increment=200000, callback=lambda: '{:,d}'.format(kept))
         for (x, y), n in pb.iterator(self.parseres.nextadjs.items()):
             if x != y:
-                if n + self.parseres.multiadjs.get((x, y), 0) > self.parseres.loopadjs.get((x, y), 0):
+                if not loop or n + self.parseres.multiadjs.get((x, y), 0) > self.parseres.loopadjs.get((x, y), 0):
                     xasn = self.ip2as[x]
                     yasn = self.ip2as[y]
                     if xasn == yasn or n > self.parseres.multiadjs.get((x, y), 0):
@@ -69,10 +69,10 @@ class Container:
         pb = Progress(len(self.parseres.multiadjs), increment=200000, callback=lambda: 'N {:,d} M {:,d}'.format(nkept, mkept))
         for (x, y), n in pb.iterator(self.parseres.multiadjs.items()):
             if x != y:
-                if n + self.parseres.nextadjs.get((x, y), 0) > self.parseres.loopadjs.get((x, y), 0):
+                if not loop or n + self.parseres.nextadjs.get((x, y), 0) > self.parseres.loopadjs.get((x, y), 0):
                     xasn = self.ip2as[x]
                     yasn = self.ip2as[y]
-                    if xasn == yasn:
+                    if xasn > 0 and yasn > 0 and xasn == yasn:
                         nexthops[x].add(y)
                         nkept += 1
                     elif x not in nexthops:
@@ -214,7 +214,7 @@ class Container:
         self.interfaces = {}
         self.routers = {}
 
-    def construct(self, nodes_file=None):
+    def construct(self, nodes_file=None, loop=True):
         """
         Construct the graph from scratch.
         :param addrs: addresses seen in the dataset
@@ -224,8 +224,8 @@ class Container:
         :param nodes_file: alias resolution dataset
         :return: the graph
         """
-        self.filter_addrs()
-        self.create_edges()
+        self.filter_addrs(loop=loop)
+        self.create_edges(loop=loop)
         self.create_dps()
         if nodes_file is not None:
             self.create_nodes(nodes_file=nodes_file)

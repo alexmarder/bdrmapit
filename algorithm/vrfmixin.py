@@ -23,7 +23,7 @@ class VRFMixin:
         vtype = edge.vtype
         if debug.DEBUG: print('VType={}'.format(vtype.name))
         for iface in rsucc.interfaces:
-            if iface.asn in origins:
+            if iface.asn > 0 and iface.asn in origins:
                 return iface.asn
         rsucc_asn = self.rupdates.asn(rsucc)
         return rsucc_asn

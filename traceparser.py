@@ -6,11 +6,11 @@ from enum import Enum
 from multiprocessing.pool import Pool
 from typing import Optional
 
-from traceutils.file2.file2 import File2#, fopen
+from traceutils.file2.file2 import File2, fopen
 from traceutils.progress.bar import Progress
 from traceutils.radix.ip2as import IP2AS, create_table
 from traceutils.scamper.atlas import AtlasReader
-from traceutils.scamper.hop import ICMPType
+from traceutils.scamper.hop import ICMPType, Hop
 from traceutils.scamper.warts import WartsReader, WartsJsonReader
 from traceutils.scamper.pyatlas import AtlasReader as AtlasOddReader
 
@@ -42,12 +42,14 @@ class ParseResults:
         self.nextadjs = Counter()
         self.multiadjs = Counter()
         self.first = Counter()
+        # self.triplets = Counter()
 
     def __repr__(self):
         return 'Addrs {addrs:,d} N {nhop:,d} M {multi:,d} DPs {dests:,d} S {spoof:,d} E {echo:,d} C {cycle:,d} L {loop:,d} F {first:,d}'.format(
             addrs=len(self.addrs), nhop=len(self.nextadjs), multi=len(self.multiadjs), dests=len(self.dps),
             spoof=len(self.spoofing), echo=len(self.echos), cycle=len(self.cycles), loop=len(self.loopadjs),
-            first=len(self.first)
+            first=len(self.first),
+            # triplets=len(self.triplets)
         )
 
     def __str__(self):
@@ -86,8 +88,9 @@ def parse(tfile: TraceFile):
     try:
         f.open()
         for trace in f:
+            trace.prune_private(_ip2as)
             trace.prune_dups()
-            trace.prune_loops()
+            trace.prune_loops(True)
             if trace.loop:
                 results.cycles.update(trace.loop)
             hops = [h for h in trace.hops if _ip2as[h.addr] != -1]
@@ -97,15 +100,20 @@ def parse(tfile: TraceFile):
                 results.first[tfile.filename, fhop.addr] += 1
             dst_asn = _ip2as.asn(trace.dst)
             for i in range(len(hops)):
-                x = hops[i]
+                x: Hop = hops[i]
                 results.addrs.add(x.addr)
-                if x.icmp_type != 0:
+                if x.type != ICMPType.echo_reply and x.type != ICMPType.portping:
                     results.dps.add((x.addr, dst_asn))
                 if i == len(hops) - 1:
                     break
-                y = hops[i+1]
+                y: Hop = hops[i+1]
+                # if i > 0:
+                #     w: Hop = hops[i-1]
+                #     results.triplets[w.addr, x.addr, y.addr] += 1
                 if y.type == ICMPType.echo_reply or y.type == ICMPType.portping:
                     results.echos.add(y.addr)
+                    break
+                if y.type == ICMPType.spoofing and y.icmp_q_ttl > 1:
                     break
                 distance = y.probe_ttl - x.probe_ttl
                 if y.icmp_q_ttl == 0:
@@ -178,12 +186,12 @@ def main():
     args = parser.parse_args()
     files = []
     if args.wfiles:
-        with File2(args.wfiles) as f:
+        with fopen(args.wfiles) as f:
             files.extend(TraceFile(line.strip(), OutputType.WARTS) for line in f if line[0] != '#')
     if args.wfilelist:
         files.extend(TraceFile(file, OutputType.WARTS) for file in args.wfilelist)
     if args.afiles:
-        with File2(args.afiles) as f:
+        with fopen(args.afiles) as f:
             files.extend(TraceFile(line.strip(), OutputType.ATLAS) for line in f if line[0] != '#')
     if args.afilelist:
         files.extend(TraceFile(file, OutputType.ATLAS) for file in args.afilelist)

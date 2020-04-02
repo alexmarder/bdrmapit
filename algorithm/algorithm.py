@@ -61,7 +61,7 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, DebugMixin, HelpersMixin)
         # If subsequent interface is an IXP interface, use interface AS
         if isucc.asn <= -100:
             ixpasns = self.ixpasns.get(isucc.asn)
-            if debug.DEBUG: print('IXP ASNs: {}'.format(ixpasns))
+            if debug.DEBUG: print('IXP ASNs: {}'.format(len(ixpasns)))
             if ixpasns:
                 overlap = iasns.keys() & ixpasns
                 if len(overlap) == 1:
@@ -88,7 +88,7 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, DebugMixin, HelpersMixin)
 
         # Third party stuff
         third = False
-        if not any(isucc.org == self.as2org[iasn] for iasn in origins):
+        if any(iasn > 0 for iasn in origins) and not any(isucc.org == self.as2org[iasn] for iasn in origins):
             # If here, subsequent interface is not in IR origin ASes
             if rsucc_asn > 0:
                 # If here, the subsequent router has an AS annotation
@@ -320,10 +320,16 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, DebugMixin, HelpersMixin)
                     if self.bgp.peer_rel(rasn, isucc.asn) or (self.isnorelpeer(rasn) and not self.bgp.rel(rasn, isucc.asn)):
                         return -1, 6000000
                 # If annotation was used, is one of the tied ASes, and the subsequent interface has multiple incoming edges
+                # if sasn in succs and sasn in asns and len(isucc.pred) > 1 and (True or not any(iasn > 0 and iasn in router.dests for iasn in sasn_origins[sasn])):
                 if sasn in succs and sasn in asns and len(isucc.pred) > 1:
                     if debug.DEBUG: print('Pred Num: {}'.format(len(isucc.pred)))
                     asn = sasn  # select the subsequent interface annotation
                     utype += 5000000
+                    if len(router.interfaces) == 1:
+                        iasn = router.interfaces[0].asn
+                        # if iasn > 0 and not (self.norelpeer and iasn in self.norelpeer) and not self.bgp.rel(iasn, sasn):
+                        #     asn = None
+                        #     utype = 0
             if not asn and len(router.succ) == 1:
                 if len(router.interfaces) == 1:
                     isucc = peek(router.succ)  # single subsequent interface
@@ -362,6 +368,9 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, DebugMixin, HelpersMixin)
         # Check for hidden AS
         # If no relationship between selected AS and an IR origin AS
         if iasns and all(asn != iasn and not self.bgp.rel(iasn, asn) for iasn in iasns):
+            # for iasn in iasns:
+            #     if iasn > 0 and iasn in router.dests:
+            #         return iasn, 43
             if not router.dests & votes.keys():
                 dasns = {dasn for dasn in router.dests if any(iasn == dasn or self.bgp.rel(iasn, dasn) for iasn in iasns)}
                 if debug.DEBUG:
@@ -391,7 +400,7 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, DebugMixin, HelpersMixin)
         votes = Counter()
         for rpred, num in edges.items():
             asn = self.rupdates.asn(rpred)
-            if debug.DEBUG: print('Router={}, RASN={}'.format(rpred.name, asn))
+            if debug.DEBUG: print('Router={}, RASN={}, ASN={}'.format(rpred.name, asn, rpred.interfaces[0].asn))
             votes[asn] += num
         if debug.DEBUG: print('Votes: {}'.format(votes))
         if len(votes) == 1:
