@@ -20,6 +20,7 @@ setup(
     version='0.1.1',
     packages=find_packages(),
     install_requires=['cython', 'jsonschema', 'deprecated', 'traceutils>=6.15.7'],
+    python_requires='>=3, !=3.8',
     cmdclass={'build_ext': build_ext},
     ext_modules=cythonize(
         extensions,

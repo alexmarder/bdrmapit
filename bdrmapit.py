@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 import json
 import os
-import sqlite3
 import sys
 from argparse import ArgumentParser
 
@@ -11,104 +10,11 @@ from traceutils.bgp import BGP
 from traceutils.progress import Progress
 from traceutils.radix.ip2as import create_table
 
-from algorithm.algorithm_alias import Bdrmapit
+from algorithm.algorithm import Bdrmapit
 from container.container import Container
-from bdrmapit_parser.algorithm.updates_dict import UpdateObj, Updates
-from bdrmapit_parser.graph.node import Interface, Router
 import traceparser as tp
+from output.saveres import Save
 from traceparser import TraceFile, OutputType
-
-def save_annotations(filename, bdrmapit: Bdrmapit, rupdates=None, iupdates=None):
-    if os.path.exists(filename):
-        os.remove(filename)
-    con = sqlite3.connect(filename)
-    con.execute('''CREATE TABLE annotation(
-        addr TEXT,
-        router TEXT,
-        asn INT,
-        org TEXT,
-        conn_asn INT,
-        conn_org TEXT,
-        rtype INT,
-        itype INT
-    )''')
-    if rupdates is None:
-        rupdates = bdrmapit.rupdates
-    if iupdates is None:
-        iupdates = bdrmapit.iupdates
-    interface: Interface
-    values = []
-    pb = Progress(len(bdrmapit.graph.interfaces), 'Writing annotations', increment=100000)
-    for interface in pb.iterator(bdrmapit.graph.interfaces.values()):
-        addr = interface.addr
-        router: Router = interface.router
-        rupdate: UpdateObj = rupdates[router]
-        iupdate: UpdateObj = iupdates[interface]
-        if rupdate is None:
-            rasn = -1
-            rorg = -1
-            rtype = -1
-        else:
-            rasn = rupdate.asn
-            rorg = rupdate.org
-            rtype = rupdate.utype
-        if iupdate is None or interface.org != rorg:
-            iasn = interface.asn
-            iorg = interface.org
-            itype = -1 if iupdate is None else 0
-        else:
-            iasn = iupdate.asn
-            iorg = iupdate.org
-            itype = iupdate.utype
-        row = {'addr': addr, 'router': router.name, 'asn': rasn, 'org': rorg, 'conn_asn': iasn, 'conn_org': iorg, 'rtype': rtype, 'itype': itype}
-        values.append(row)
-    con.executemany('insert into annotation (addr, router, asn, org, conn_asn, conn_org, rtype, itype) values (:addr, :router, :asn, :org, :conn_asn, :conn_org, :rtype, :itype)', values)
-    con.commit()
-
-def save_ixps(filename, bdrmapit: Bdrmapit, rupdates: Updates = None):
-    if rupdates is None:
-        rupdates = bdrmapit.rupdates
-    con = sqlite3.connect(filename)
-    cur = con.cursor()
-    cur.execute('drop table if EXISTS ixp')
-    cur.execute('''CREATE TABLE IF NOT EXISTS ixp(
-        addr TEXT,
-        router TEXT,
-        asn INT,
-        org TEXT,
-        conn_asn INT,
-        conn_org TEXT,
-        pid INT
-    )''')
-    values = []
-    for router in bdrmapit.routers_succ:
-        conn_asn = rupdates[router].asn
-        conn_org = bdrmapit.as2org[conn_asn]
-        for isucc in router.succ:
-            if isucc.asn <= -100:
-                pid = (isucc.asn * -1) - 100
-                rsucc = isucc.router
-                asn = rupdates[rsucc].asn
-                org = bdrmapit.as2org[asn]
-                value = {'addr': isucc.addr, 'router': router.name, 'asn': asn, 'org': org, 'conn_asn': conn_asn, 'conn_org': conn_org, 'pid': pid}
-                values.append(value)
-    cur.executemany('insert into ixp (addr, router, asn, org, conn_asn, conn_org, pid) VALUES (:addr, :router, :asn, :org, :conn_asn, :conn_org, :pid)', values)
-    con.commit()
-
-def save_node_as(filename, bdrmapit: Bdrmapit):
-    with open(filename, 'w') as f:
-        for router in bdrmapit.graph.routers.values():
-            if router.name[0] == 'N':
-                update = bdrmapit.rupdates[router]
-                if update.asn <= 0:
-                    continue
-                if update.utype == 1:
-                    method = 'interfaces'
-                elif update.utype < 10:
-                    method = 'last_hop'
-                else:
-                    method = 'refinement'
-                f.write('node.AS {} {} {}\n'.format(router.name, update.asn, method))
 
 def main():
     parser = ArgumentParser()
@@ -139,7 +45,7 @@ def main():
         prep = Container.load(args.graph, ip2as, as2org)
         sys.stdout.write(' Done.\n')
     else:
-        if 'warts' not in config and 'atlas' not in config and 'atlas-odd' not in config:
+        if 'warts' not in config and 'atlas' not in config and 'atlas-odd' not in config and 'jsonwarts' not in config:
             print('Either "warts", "atlas" or both must be specified in the configuration json.', file=sys.stderr)
             return
         files = []
@@ -150,6 +56,13 @@ def main():
                     files.extend(TraceFile(line.strip(), OutputType.WARTS) for line in f)
             if 'files-list' in warts:
                 files.extend(TraceFile(file, OutputType.WARTS) for file in warts['files-list'])
+        if 'jsonwarts' in config:
+            jsonwarts = config['jsonwarts']
+            if 'files' in jsonwarts:
+                with open(jsonwarts['files']) as f:
+                    files.extend(TraceFile(line.strip(), OutputType.JSONWARTS) for line in f)
+            if 'files-list' in jsonwarts:
+                files.extend(TraceFile(file, OutputType.JSONWARTS) for file in jsonwarts['files-list'])
         if 'atlas' in config:
             atlas = config['atlas']
             if 'files' in atlas:
@@ -182,10 +95,11 @@ def main():
     bdrmapit.annotate_lasthops()
     bdrmapit.graph_refinement(bdrmapit.routers_succ, bdrmapit.interfaces_pred, iterations=config.get('max_iterations', 10))
 
-    save_annotations(args.output, bdrmapit)
-    save_ixps(args.output, bdrmapit)
+    save = Save(args.output, bdrmapit, replace=True)
+    save.save_annotations()
+    save.save_ixps()
     if args.nodes_as:
-        save_node_as(args.nodes_as, bdrmapit)
+        save.save_node_as(args.nodes_as)
 
 if __name__ == '__main__':
     main()

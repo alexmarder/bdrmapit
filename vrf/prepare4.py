@@ -3,7 +3,6 @@ from collections import defaultdict
 from typing import Dict, Optional
 
 from traceutils.as2org.as2org import AS2Org
-from traceutils.file2 import fopen
 from traceutils.progress.bar import Progress
 from traceutils.radix.ip2as import IP2AS
 from traceutils.utils.net import otherside
@@ -37,7 +36,6 @@ class VRFPrep(Container):
             vrfinfo = pickle.load(f)
         self.middle = vrfinfo['middle']
         self.last = vrfinfo['last']
-        # self.middle = {x: asns for x, asns in self.middle.items() if asns != {self.ip2as[x]}}
 
     def merge_edgetypes(self, toforward, forwarding):
         bedges = defaultdict(dict)
@@ -85,28 +83,25 @@ class VRFPrep(Container):
                 aedges[b].add(c)
                 aedges[c].add(b)
 
-        pb = Progress(message='Marking VRF edges', increment=500000, callback=lambda: '{:,d}'.format(len(self.prune)))
-        print(self.middle.get('2001:504:0:1::6939:1'))
-        with fopen(triplets) as f:
-            for line in pb.iterator(f):
-                w, x, y = line.split()
-                if x in self.middle:
-                    # if x == '2001:504:0:1::6939:1':
-                    #     print(w, x, y)
-                    if not w:
-                        if None in self.middle[x]:
-                            mark(x, y)
-                    else:
-                        if self.ip2as[w] in self.middle[x]:
-                            mark(w, x, y)
-                if y in self.last:
-                    if not w:
-                        if None not in self.last[y]:
-                            mark(x, y)
-                    else:
-                        pasns = self.last[y]
-                        if self.ip2as[x] not in pasns:
-                            mark(x, y)
+        pb = Progress(len(triplets), 'Test', increment=500000, callback=lambda: '{:,d}'.format(len(self.prune)))
+        for w, x, y in pb.iterator(triplets):
+            if x in self.middle:
+                if not w:
+                    if None in self.middle[x]:
+                        mark(x, y)
+                else:
+                    if self.ip2as[w] in self.middle[x]:
+                        mark(w, x, y)
+            if y in self.last:
+                # if y == '2001:468:f000:2132::1':
+                #     print(w, x, y)
+                if not w:
+                    if None not in self.last[y]:
+                        mark(x, y)
+                else:
+                    pasns = self.last[y]
+                    if self.ip2as[x] not in pasns:
+                        mark(x, y)
         self.bnext = self.merge_edgetypes(toforward_next, forwarding_next)
         self.bmulti = self.merge_edgetypes(toforward_multi, forwarding_multi)
 
