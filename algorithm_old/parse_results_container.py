@@ -1,98 +1,39 @@
+import pickle
 from collections import defaultdict
 from typing import Dict, Union
 
-from traceutils.file2.file2 import File2, fopen
+from deprecated import deprecated
+from traceutils.file2.file2 import File2
 from traceutils.progress.bar import Progress
 
 from bdrmapit_parser.graph.construct import Graph
 from bdrmapit_parser.graph.node import Interface, Router
-from traceparser import ParseResults
 from vrf.vrfedge import VRFEdge
-
-import pandas as pd
 
 
 class Container:
-    def __init__(self, ip2as, as2org, parseres: ParseResults):
+    def __init__(self, ip2as, as2org, addrs=None, nexthop=None, multi=None, dps=None, mpls=None, spoofing=None, echos=None, cycles=None):
         self.ip2as = ip2as
         self.as2org = as2org
-        self.parseres = parseres
+        self.addrs = addrs
+        self.nexthop = nexthop
+        self.multi = multi
+        self.dps = dps
+        self.mpls = mpls
+        self.spoofing = spoofing
+        self.echos = echos
+        self.cycles = cycles
         self.interfaces: Dict[str, Interface] = {}
         self.routers: Dict[str, Router] = {}
-        self.addrs = None
-        self.nexthops = None
-        self.multi = None
-        self.dps = None
-        self.firstaddrs = None
 
     @classmethod
-    def load(cls, ip2as, as2org, *files):
-        allresults = None
-        for file in files:
-            results = ParseResults.load(file)
-            if allresults is None:
-                allresults = results
-            else:
-                allresults.update(results)
-        return cls(ip2as, as2org, allresults)
+    def load(cls, filename, ip2as, as2org):
+        with open(filename, 'rb') as f:
+            results = pickle.load(f)
+        return cls(ip2as, as2org, **results)
 
     def alladdrs(self):
-        return set(self.addrs) | set(self.parseres.echos)
-
-    def filter_addrs(self, loop=True):
-        addrs = set()
-        firstaddrs = {addr for _, addr in self.parseres.first}
-        adjs = self.parseres.nextadjs + self.parseres.multiadjs
-        pb = Progress(len(adjs), 'Filtering addrs', increment=1000000, callback=lambda: '{:,d}'.format(len(addrs)))
-        for (x, y), n in pb.iterator(adjs.items()):
-            if not loop or n > self.parseres.loopadjs.get((x, y), 0):
-                addrs.add(x)
-                addrs.add(y)
-                firstaddrs.discard(y)
-        self.addrs = addrs | firstaddrs
-        self.addrs |= {addr for addr, _ in self.parseres.dps}
-        self.firstaddrs = {(file, addr) for file, addr in self.parseres.first if addr in firstaddrs}
-
-    def create_edges(self, loop=True):
-        nexthops = defaultdict(set)
-        kept = 0
-        pb = Progress(len(self.parseres.nextadjs), increment=200000, callback=lambda: '{:,d}'.format(kept))
-        for (x, y), n in pb.iterator(self.parseres.nextadjs.items()):
-            if x != y:
-                if not loop or n + self.parseres.multiadjs.get((x, y), 0) > self.parseres.loopadjs.get((x, y), 0):
-                    xasn = self.ip2as[x]
-                    yasn = self.ip2as[y]
-                    if xasn == yasn or n > self.parseres.multiadjs.get((x, y), 0):
-                        nexthops[x].add(y)
-                        kept += 1
-        nkept = kept
-        mkept = 0
-        multi = defaultdict(set)
-        pb = Progress(len(self.parseres.multiadjs), increment=200000, callback=lambda: 'N {:,d} M {:,d}'.format(nkept, mkept))
-        for (x, y), n in pb.iterator(self.parseres.multiadjs.items()):
-            if x != y:
-                if not loop or n + self.parseres.nextadjs.get((x, y), 0) > self.parseres.loopadjs.get((x, y), 0):
-                    xasn = self.ip2as[x]
-                    yasn = self.ip2as[y]
-                    if xasn > 0 and yasn > 0 and xasn == yasn:
-                        nexthops[x].add(y)
-                        nkept += 1
-                    elif x not in nexthops:
-                        multi[x].add(y)
-                        mkept += 1
-        nexthops.default_factory = None
-        multi.default_factory = None
-        self.nexthops = nexthops
-        self.multi = multi
-
-    def create_dps(self):
-        dps = defaultdict(set)
-        pb = Progress(len(self.parseres.dps), 'Creating dest pairs', increment=1000000)
-        for addr, asn in pb.iterator(self.parseres.dps):
-            if asn > 0:
-                dps[addr].add(asn)
-        dps.default_factory = None
-        self.dps = dps
+        return set(self.addrs) | set(self.echos)
 
     def create_node(self, addr, router: Router):
         """
@@ -119,9 +60,9 @@ class Container:
         :param nodes_file: filename containing alias resolution groupings in CAIDA format
         :param increment: increment for status
         """
-        taddrs = self.addrs
+        taddrs = set(self.addrs)
         pb = Progress(message='Creating nodes', increment=increment, callback=lambda: 'Routers {:,d} Interfaces {:,d}'.format(len(self.routers), len(self.interfaces)))
-        with fopen(nodes_file, 'rt') as f:
+        with File2(nodes_file, 'rt') as f:
             for line in pb.iterator(f):
                 if line[0] != '#':
                     _, nid, *naddrs = line.split()
@@ -136,6 +77,7 @@ class Container:
     def create_remaining(self, aliases: bool, increment=100000):
         """
         Create router nodes for any interfaces not seen in the alias resolution dataset, or when there is not alias resolution dataset.
+        :param addrs: addresses included in the graph
         :param aliases: flag to indicate if alias resoultion was used
         :param increment: increment for status
         """
@@ -165,8 +107,8 @@ class Container:
         :param nexthop: nexthop edges
         :param increment: increment for status
         """
-        pb = Progress(len(self.nexthops), 'Adding nexthop edges', increment=increment)
-        for addr, edges in pb.iterator(self.nexthops.items()):
+        pb = Progress(len(self.nexthop), 'Adding nexthop edges', increment=increment)
+        for addr, edges in pb.iterator(self.nexthop.items()):
             interface = self.interfaces[addr]
             router = interface.router
             router.nexthop = True
@@ -212,25 +154,42 @@ class Container:
         """
         return Graph(interfaces=self.interfaces, routers=self.routers)
 
-    def add_hints(self, hints: Dict[str, int]):
-        for addr, hint in hints.items():
-            interface = self.interfaces[addr]
-            interface.hint = hint
-            if not interface.router.hints:
-                interface.router.hints = {hint}
-            else:
-                interface.router.hints.add(hint)
-
-    def add_hints_file(self, filename):
-        df = pd.read_csv(filename, sep='\t', index_col=0)
-        hints = dict(df.tasn)
-        self.add_hints(hints)
-
     def reset(self):
         self.interfaces = {}
         self.routers = {}
 
-    def construct(self, nodes_file=None, loop=True):
+    def add_echos(self, increment=1000000):
+        echos = 0
+        pb = Progress(len(self.echos), 'Adding and marking echos', increment=increment, callback=lambda: '{:,d}'.format(echos))
+        for addr in pb.iterator(self.echos):
+            if addr in self.interfaces:
+                interface = self.interfaces[addr]
+                if not interface.dests:
+                    interface.echo = True
+                    # if all(i.echo for i in interface.router.interfaces):
+                    #     interface.router.echo = True
+            else:
+                router = Router(addr)
+                # router.echo = True
+                self.create_node(addr, router)
+                self.interfaces[addr].echo = True
+
+    def add_cycles(self, increment=1000000):
+        echos = 0
+        pb = Progress(len(self.cycles), 'Adding and marking cycles', increment=increment, callback=lambda: '{:,d}'.format(echos))
+        for addr in pb.iterator(self.echos):
+            if addr in self.interfaces:
+                interface = self.interfaces[addr]
+                if not interface.dests:
+                    interface.cycle = True
+                    if all(i.cycle for i in interface.router.interfaces):
+                        interface.router.echo = True
+            else:
+                router = Router(addr)
+                router.cycle = True
+                self.create_node(addr, router, cycle=True)
+
+    def construct(self, nodes_file=None, echos=False, cycles=False):
         """
         Construct the graph from scratch.
         :param addrs: addresses seen in the dataset
@@ -240,13 +199,14 @@ class Container:
         :param nodes_file: alias resolution dataset
         :return: the graph
         """
-        self.filter_addrs(loop=loop)
-        self.create_edges(loop=loop)
-        self.create_dps()
         if nodes_file is not None:
             self.create_nodes(nodes_file=nodes_file)
         self.create_remaining(nodes_file is not None)
         self.add_nexthop()
         self.add_multi()
         self.add_dests()
+        if echos:
+            self.add_echos()
+        if cycles:
+            self.add_cycles()
         return self.create_graph()

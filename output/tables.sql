@@ -5,6 +5,7 @@ CREATE TABLE annotation(
     org TEXT,
     conn_asn INT,
     conn_org TEXT,
+    echo BOOLEAN,
     rtype INT,
     itype INT
 );
