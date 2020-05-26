@@ -58,30 +58,43 @@ class DebugMixin(ABC):
     def annotate_interface(self, interface: Interface):
         raise NotImplementedError()
 
-    def test_last(self, nid, rupdates=None, iupdates=None):
+    @abstractmethod
+    def annotate_router_hint(self, router: Router):
+        raise NotImplementedError()
+
+    def test_last(self, nid, rupdates=None, iupdates=None, usehints=False):
         if rupdates is None:
             rupdates = Updates()
         if iupdates is None:
             iupdates = Updates()
         with Debug(self, rupdates=rupdates, iupdates=iupdates):
-            if not isinstance(nid, Router):
+            try:
                 r: Router = self.graph.routers[nid]
-            else:
-                r = nid
+            except KeyError:
+                r: Router = self.graph.interfaces[nid].router
+            if usehints:
+                asn, utype = self.annotate_router_hint(r)
+                if asn > 0:
+                    return asn, utype
             result = self.annotate_lasthop(r)
         print(result)
 
-    def test_router(self, nid, rupdates=None, iupdates=None, **kwargs):
+    def test_router(self, nid, rupdates=None, iupdates=None, usehints=False, **kwargs):
         with Debug(self, rupdates=rupdates, iupdates=iupdates):
             try:
                 r: Router = self.graph.routers[nid]
             except KeyError:
                 r: Router = self.graph.interfaces[nid].router
+            if usehints:
+                asn, utype = self.annotate_router_hint(r)
+                if asn > 0:
+                    return asn, utype
             if r.vrf:
                 result = self.annotate_router_vrf(r)
             else:
                 result = self.annotate_router(r, **kwargs)
         print(result)
+        return result
 
     def test_interface(self, addr, rupdates=None, iupdates=None):
         with Debug(self, rupdates=rupdates, iupdates=iupdates):

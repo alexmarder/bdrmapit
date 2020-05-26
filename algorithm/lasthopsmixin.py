@@ -8,13 +8,14 @@ from traceutils.utils.utils import peek
 
 from algorithm import debug
 from algorithm.helpersmixin import HelpersMixin
+from algorithm.regexmixin import RegexMixin
 from algorithm.utypes import NODEST, MISSING_NOINTER, HEAPED
 from bdrmapit_parser.algorithm.updates_dict import Updates
 from bdrmapit_parser.graph.construct import Graph
 from bdrmapit_parser.graph.node import Router
 
 
-class LastHopsMixin:
+class LastHopsMixin(RegexMixin):
 
     rupdates: Optional[Updates] = None
     bgp: Optional[BGP] = None
@@ -108,8 +109,10 @@ class LastHopsMixin:
 
     def annotate_lasthop(self, router: Router):
         dests = router.dests
-        if debug.DEBUG: print('Dests: {}'.format(dests))
         iasns = Counter(interface.asn for interface in router.interfaces if interface.asn > 0)
+        if debug.DEBUG:
+            print('IASNs: {}'.format(iasns))
+            print('Dests: {}'.format(dests))
         # No destination ASes
         if len(router.dests) == 0 or all(dest <= 0 for dest in router.dests):
             return self.annotate_lasthop_nodests(iasns)
@@ -140,10 +143,15 @@ class LastHopsMixin:
         # No relationship between any origin AS and any destination AS
         return self.annotate_lasthop_norels(dests, iasns)
 
-    def annotate_lasthops(self, routers=None):
+    def annotate_lasthops(self, routers=None, usehints=False, use_provider=False):
         if routers is None:
             routers = self.lasthops
         pb = Progress(len(routers), message='Last Hops', increment=100000)
         for router in pb.iterator(routers):
-            dest, utype = self.annotate_lasthop(router)
-            self.rupdates.add_update_direct(router, dest, self.as2org[dest], utype)
+            asn = -1
+            utype = -1
+            if usehints and router.hints:
+                asn, utype = self.annotate_router_hint(router, use_provider=use_provider)
+            if asn <= 0:
+                asn, utype = self.annotate_lasthop(router)
+            self.rupdates.add_update_direct(router, asn, self.as2org[asn], utype)

@@ -8,6 +8,7 @@ cdef class Router:
     cdef readonly dict origins
     cdef public bint echo
     cdef public bint cycle
+    cdef public set hints
 
 cdef class Interface:
     cdef readonly str addr
@@ -19,6 +20,7 @@ cdef class Interface:
     cdef public bint vrf
     cdef public bint echo
     cdef public bint cycle
+    cdef public int hint
 
 ctypedef fused Node:
     Router

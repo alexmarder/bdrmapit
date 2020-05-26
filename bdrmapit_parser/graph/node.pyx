@@ -11,6 +11,7 @@ cdef class Router:
         self.dests = set()
         self.origins = {}
         # self.origins = defaultdict(set)
+        self.hints = None
 
     def __repr__(self):
         return 'Router<{}>'.format(self.name)
@@ -27,6 +28,7 @@ cdef class Interface:
         self.dests = set()
         self.vrf = False
         # self.mpls = False
+        self.hint = 0
 
     def __repr__(self):
         return 'Interface<{} {}>'.format(self.addr, self.asn)

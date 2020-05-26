@@ -1,13 +1,15 @@
 from collections import defaultdict
 from typing import Dict, Union
 
-from traceutils.file2.file2 import File2
+from traceutils.file2.file2 import File2, fopen
 from traceutils.progress.bar import Progress
 
 from bdrmapit_parser.graph.construct import Graph
 from bdrmapit_parser.graph.node import Interface, Router
 from traceparser import ParseResults
 from vrf.vrfedge import VRFEdge
+
+import pandas as pd
 
 
 class Container:
@@ -119,7 +121,7 @@ class Container:
         """
         taddrs = self.addrs
         pb = Progress(message='Creating nodes', increment=increment, callback=lambda: 'Routers {:,d} Interfaces {:,d}'.format(len(self.routers), len(self.interfaces)))
-        with File2(nodes_file, 'rt') as f:
+        with fopen(nodes_file, 'rt') as f:
             for line in pb.iterator(f):
                 if line[0] != '#':
                     _, nid, *naddrs = line.split()
@@ -209,6 +211,20 @@ class Container:
         :return: the graph
         """
         return Graph(interfaces=self.interfaces, routers=self.routers)
+
+    def add_hints(self, hints: Dict[str, int]):
+        for addr, hint in hints.items():
+            interface = self.interfaces[addr]
+            interface.hint = hint
+            if not interface.router.hints:
+                interface.router.hints = {hint}
+            else:
+                interface.router.hints.add(hint)
+
+    def add_hints_file(self, filename):
+        df = pd.read_csv(filename, sep='\t', index_col=0)
+        hints = dict(df.tasn)
+        self.add_hints(hints)
 
     def reset(self):
         self.interfaces = {}

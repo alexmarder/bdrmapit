@@ -13,6 +13,7 @@ from algorithm.debug import DebugMixin
 from algorithm.firsthopmixin import FirstHopMixin
 from algorithm.helpersmixin import HelpersMixin
 from algorithm.lasthopsmixin import LastHopsMixin
+from algorithm.regexmixin import RegexMixin
 from algorithm.utypes import HIDDEN_NOINTER, SINGLE_SUCC_4, ALLPEER_SUCC, VOTE_SINGLE, \
     VOTE_TIE, HIDDEN_INTER
 from algorithm.vrfmixin import VRFMixin
@@ -22,7 +23,7 @@ from bdrmapit_parser.graph.node import Router, Interface
 from vrf.vrfedge import VRFEdge
 
 
-class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, DebugMixin, HelpersMixin):
+class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, RegexMixin, DebugMixin, HelpersMixin):
 
     def __init__(self, graph: Graph, as2org: AS2Org, bgp: BGP, ixpasns=None, strict=True, skipua=False, hidden_reverse=True, norelpeer: Set[int]=None):
         self.graph = graph
@@ -61,8 +62,8 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, DebugMixin, HelpersMixin)
         # If subsequent interface is an IXP interface, use interface AS
         if isucc.asn <= -100:
             ixpasns = self.ixpasns.get(isucc.asn)
-            if debug.DEBUG: print('IXP ASNs: {}'.format(len(ixpasns)))
             if ixpasns:
+                if debug.DEBUG: print('IXP ASNs: {}'.format(len(ixpasns)))
                 overlap = iasns.keys() & ixpasns
                 if len(overlap) == 1:
                     return peek(overlap)
@@ -208,6 +209,7 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, DebugMixin, HelpersMixin)
         # Use heuristics to determine link votes
         succs = Counter()  # Subsequent interface vote recorder
         sasn_origins = defaultdict(set)  # Origins seen prior to subsequent interfaces
+        sorigins = Counter(isucc.asn for isucc in router.succ)
         # For each subsequent interface
         for isucc in router.succ:
             origins = router.origins[isucc]  # Origins seen prior to subsequent interface
@@ -224,7 +226,8 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, DebugMixin, HelpersMixin)
         votes = succs + iasns
         if debug.DEBUG: print('Votes: {}'.format(votes))
         if not votes:
-            return -1, -1
+            # return -1, -1
+            return self.annotate_lasthop(router)
 
         # if iasns and succs and any(sasn in iasns or sasn in self.multi_customers(sasn_origins[sasn]) for sasn in succs):
         #     maxrels = {}
@@ -257,14 +260,17 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, DebugMixin, HelpersMixin)
             # Origin AS is not also a subsequent AS
             if iasn not in succs:
                 # All subsequent ASes are peers of the single origin AS
-                numrels = sum(self.bgp.peer_rel(iasn, sasn) or bool(self.norelpeer and iasn in self.norelpeer and not self.bgp.rel(iasn, sasn)) for sasn in succs)
+                numrels = sum(1 for sasn in succs if self.bgp.peer_rel(iasn, sasn) or (self.norelpeer and iasn in self.norelpeer and not self.bgp.rel(iasn, sasn)))
                 if debug.DEBUG: print('Peers: {} >= {}'.format(numrels, len(succs) * .85))
                 if numrels >= len(succs) * .85:
-                    if debug.DEBUG: print('All peers or norels: True')
+                    if debug.DEBUG:
+                        print('All peers or norels: True')
+                        print('IASN: {:,d}, Max Vote: {:,d}'.format(votes[iasn], max(votes.values())))
                     # Make sure its votes are not dwarfed by subsequent AS
                     if votes[iasn] > max(votes.values()) / 2:
                         # Select the router origin AS
                         return iasn, utype + ALLPEER_SUCC
+                    if debug.DEBUG: print('{:,d} > {:.1f}'.format(votes[iasn], max(votes.values()) / 4))
                     if votes[iasn] > max(votes.values()) / 4 and sum(self.bgp.peer_rel(iasn, sasn) for sasn in succs) >= 2:
                         return iasn, utype + ALLPEER_SUCC
                     if self.norelpeer is not None and iasn in self.norelpeer and votes[iasn] > max(votes.values()) / 4 and len(succs) >= 3:
@@ -348,15 +354,15 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, DebugMixin, HelpersMixin)
                 if debug.DEBUG: print('Conesizes: {}'.format({a: self.bgp.conesize[a] for a in asns}))
                 # First select from ASes that are both router origin ASes and subsequent ASes
                 # Then select likely customer, based on smalles customer cone size
-                asn = min(asns, key=lambda x: (not (x in sasn_origins[x] and x in succs), self.bgp.conesize[x], -x))
+                asn = min(asns, key=lambda x: (not (x in sasn_origins[x] and x in sorigins), x not in router.dests, self.bgp.conesize[x], -x))
                 utype += VOTE_TIE
 
         if asn not in iasns:
-            overlap = iasns.keys() & succs.keys()
+            overlap = iasns.keys() & sorigins.keys()
             if debug.DEBUG: print('Overlap: {}'.format(overlap))
-            if overlap:
-                if debug.DEBUG: print('Succs votes: {} < (2 * {}) / 3 = {}'.format(succs[asn], sum(succs.values()), (2 * sum(succs.values())) / 3))
-                if succs[asn] < (2 * sum(succs.values())) / 3:
+            if len(overlap) == 1:
+                if debug.DEBUG: print('Succs votes: {} < (2 * {}) / 3 = {}'.format(sorigins[asn], sum(sorigins.values()), (2 * sum(sorigins.values())) / 3))
+                if succs[asn] < (2 * sum(sorigins.values())) / 3:
                     oasns = max_num(overlap, key=votes.__getitem__)
                     if len(oasns) == 1:
                         oasn = oasns[0]
@@ -364,6 +370,18 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, DebugMixin, HelpersMixin)
                         if self.as2org[oasn] != self.as2org[asn]:
                             asn = oasn
                             utype += 1000000
+
+        # Check destination ASes
+        # if not iasns and not router.nexthop and sum(succs.values()) <= 1:
+        #     dasn, _ = self.annotate_lasthop(router)
+        #     if debug.DEBUG:
+        #         print('Curr ASN: {}'.format(asn))
+        #         print('Last hop: {}'.format(dasn))
+        #     if dasn != asn:
+        #         if debug.DEBUG: print('{} in cone[{}]'.format(asn, dasn, asn in self.bgp.cone[dasn]))
+        #         if asn in self.bgp.cone[dasn]:
+        #             asn = dasn
+        #             utype = 17000
 
         # Check for hidden AS
         # If no relationship between selected AS and an IR origin AS
@@ -380,10 +398,15 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, DebugMixin, HelpersMixin)
             return self.hidden_asn(iasns, asn, utype, votes)
         return asn, utype
 
-    def annotate_routers(self, routers: Collection[Router], increment=100000):
+    def annotate_routers(self, routers: Collection[Router], usehints=False, use_provider=False, increment=100000):
         pb = Progress(len(routers), 'Annotating routers', increment=increment)
         for router in pb.iterator(routers):
-            asn, utype = self.annotate_router(router)
+            asn = -1
+            utype = -1
+            if usehints and router.hints:
+                asn, utype = self.annotate_router_hint(router, use_provider=use_provider)
+            if asn <= 0:
+                asn, utype = self.annotate_router(router)
             self.rupdates.add_update(router, asn, self.as2org[asn], utype)
 
     def annotate_vrf_routers(self, routers: Collection[Router], increment=100000):
@@ -431,12 +454,12 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, DebugMixin, HelpersMixin)
                 asn, utype = self.annotate_interface(interface)
                 self.iupdates.add_update(interface, asn, self.as2org[asn], utype)
 
-    def graph_refinement(self, routers: List[Router], interfaces: List[Interface], iterations=-1, vrfrouters: List[Router] = None):
+    def graph_refinement(self, routers: List[Router], interfaces: List[Interface], iterations=-1, vrfrouters: List[Router] = None, usehints=False, use_provider=False):
         self.previous_updates = []
         iteration = 0
         while iterations < 0 or iteration < iterations:
             Progress.message('********** Iteration {:,d} **********'.format(iteration), file=sys.stderr)
-            self.annotate_routers(routers)
+            self.annotate_routers(routers, usehints=usehints, use_provider=use_provider)
             self.rupdates.advance()
             if vrfrouters:
                 self.annotate_vrf_routers(vrfrouters)
