@@ -88,12 +88,14 @@ def main():
     bgp = BGP(config['as-rels']['rels'], config['as-rels']['cone'])
 
     nodes_file = config.get('aliases')
-    graph = prep.construct(nodes_file=nodes_file)
+    hints_file = config.get('hints')
+    use_hints = hints_file is not None
+    graph = prep.construct(nodes_file=nodes_file, hints_file=hints_file)
 
     bdrmapit = Bdrmapit(graph, as2org, bgp, strict=False)
     bdrmapit.set_dests()
-    bdrmapit.annotate_lasthops()
-    bdrmapit.graph_refinement(bdrmapit.routers_succ, bdrmapit.interfaces_pred, iterations=config.get('max_iterations', 10))
+    bdrmapit.annotate_lasthops(usehints=use_hints, use_provider=True)
+    bdrmapit.graph_refinement(bdrmapit.routers_succ, bdrmapit.interfaces_pred, iterations=config.get('max_iterations', 10), usehints=use_hints, use_provider=True)
 
     save = Save(args.output, bdrmapit, replace=True)
     save.save_annotations()
