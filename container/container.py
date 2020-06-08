@@ -212,6 +212,11 @@ class Container:
         """
         return Graph(interfaces=self.interfaces, routers=self.routers)
 
+    def reset_hints(self):
+        for interface in self.interfaces.values():
+            interface.hint = 0
+            interface.router.hints = None
+
     def add_hints(self, hints: Dict[str, int]):
         for addr, hint in hints.items():
             interface = self.interfaces[addr]
@@ -230,7 +235,7 @@ class Container:
         self.interfaces = {}
         self.routers = {}
 
-    def construct(self, nodes_file=None, loop=True):
+    def construct(self, nodes_file=None, loop=True, hints_file=None):
         """
         Construct the graph from scratch.
         :param addrs: addresses seen in the dataset
@@ -249,4 +254,6 @@ class Container:
         self.add_nexthop()
         self.add_multi()
         self.add_dests()
+        if hints_file is not None:
+            self.add_hints_file(hints_file)
         return self.create_graph()
