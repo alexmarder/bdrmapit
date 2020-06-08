@@ -86,7 +86,7 @@ class DebugMixin(ABC):
             except KeyError:
                 r: Router = self.graph.interfaces[nid].router
             if usehints:
-                asn, utype = self.annotate_router_hint(r)
+                asn, utype = self.annotate_router_hint(r, **kwargs)
                 if asn > 0:
                     return asn, utype
             if r.vrf:

@@ -212,6 +212,11 @@ class Container:
         """
         return Graph(interfaces=self.interfaces, routers=self.routers)
 
+    def reset_hints(self):
+        for interface in self.interfaces.values():
+            interface.hint = 0
+            interface.router.hints = None
+
     def add_hints(self, hints: Dict[str, int]):
         for addr, hint in hints.items():
             interface = self.interfaces[addr]

@@ -19,38 +19,47 @@ class RegexMixin:
     rupdates: Optional[Updates] = None
 
     def hidden_provider_hint(self, router):
-        iasns = {interface.asn for interface in router.interfaces if interface.asn > 0}
-        if not iasns:
-            iasns = set()
-            for interface in router.interfaces:
-                for pred in interface.pred:
-                    update = self.rupdates[pred]
-                    if update is not None:
-                        iasn = update.asn
-                        if iasn > 0:
-                            iasns.add(iasn)
         sasns = {succ.asn for succ in router.succ if succ.asn > 0}
-        provsucc = {provider for asn in sasns for provider in self.bgp.providers[asn]}
-        customers = {customer for asn in iasns for customer in self.bgp.customers[asn]}
-        provcust = provsucc & customers
-        provinter = provcust & router.hints
-        if not provinter:
-            provdest = {provider for asn in router.dests for provider in self.bgp.providers[asn]}
-            provcust = provdest & customers
-            provinter = provcust & router.hints
+        providers = {pasn for sasn in chain(sasns, router.dests) for pasn in self.bgp.providers[sasn]}
+        provinter = providers & router.hints
         if len(provinter) == 1:
             utype = 0xff08
             return peek(provinter), utype
         return -1, -1
 
+    # def hidden_provider_hint(self, router):
+    #     iasns = {interface.asn for interface in router.interfaces if interface.asn > 0}
+    #     if not iasns:
+    #         iasns = set()
+    #         for interface in router.interfaces:
+    #             for pred in interface.pred:
+    #                 update = self.rupdates[pred]
+    #                 if update is not None:
+    #                     iasn = update.asn
+    #                     if iasn > 0:
+    #                         iasns.add(iasn)
+    #     sasns = {succ.asn for succ in router.succ if succ.asn > 0}
+    #     provsucc = {provider for asn in sasns for provider in self.bgp.providers[asn]}
+    #     customers = {customer for asn in iasns for customer in self.bgp.customers[asn]}
+    #     provcust = provsucc & customers
+    #     provinter = provcust & router.hints
+    #     if not provinter:
+    #         provdest = {provider for asn in router.dests for provider in self.bgp.providers[asn]}
+    #         provcust = provdest & customers
+    #         provinter = provcust & router.hints
+    #     if len(provinter) == 1:
+    #         utype = 0xff08
+    #         return peek(provinter), utype
+    #     return -1, -1
+
     def annotate_router_hint(self, router: Router, use_provider=False):
         utype = 0
         if debug.DEBUG: print('Hints: {}'.format(router.hints))
-        iasns = {interface.asn for interface in router.interfaces if interface.asn > 0}
+        # iasns = {interface.asn for interface in router.interfaces if interface.asn > 0}
         sasns = Counter(succ.asn for succ in router.succ if succ.asn > 0)
-        possible = iasns | sasns.keys() | router.dests
+        possible = sasns.keys() | router.dests
         if debug.DEBUG:
-            print('IASNs: {}'.format(iasns))
+            # print('IASNs: {}'.format(iasns))
             print('SASNs: {}'.format(sasns))
             print('Dests: {}'.format(router.dests))
             print('{} in possible: {}'.format(router.hints, bool(router.hints & possible)))
@@ -60,8 +69,8 @@ class RegexMixin:
         intersection = possible & router.hints
         if len(intersection) == 1:
             # print(utype)
-            if router.hints & iasns:
-                utype |= 0xff01
+            # if router.hints & iasns:
+            #     utype |= 0xff01
             if router.hints & sasns.keys():
                 utype |= 0xff02
             if router.hints & router.dests:
@@ -76,8 +85,8 @@ class RegexMixin:
         if debug.DEBUG:
             print('{} in possible orgs: {}'.format(hintorgs, bool(hintorgs & posorgs)))
         if interorgs:
-            if hintorgs & {self.as2org[asn] for asn in iasns}:
-                utype |= 0xfe01
+            # if hintorgs & {self.as2org[asn] for asn in iasns}:
+            #     utype |= 0xfe01
             if hintorgs & {self.as2org[asn] for asn in sasns}:
                 utype |= 0xfe02
             if hintorgs & {self.as2org[asn] for asn in router.dests}:
