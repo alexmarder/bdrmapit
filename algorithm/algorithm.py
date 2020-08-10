@@ -242,6 +242,13 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, RegexMixin, DebugMixin, H
         #             if num > maxrels[max(succs, key=maxrels.__getitem__)] + 2:
         #                 return asn, 46
 
+        if len(iasns) == 1 and len(succs) == 1:
+            iasn = peek(iasns)
+            sasn = peek(succs)
+            if iasns[iasn] == succs[sasn]:
+                if self.bgp.peer_rel(iasn, sasn) or (self.norelpeer and iasn in self.norelpeer and not self.bgp.rel(iasn, sasn)):
+                    return sasn, 5600
+
         # Deal specially with cases where there is only a single subsequent AS, or subsequent ORG
         # Multihomed exception
         if iasns and len(succs) == 1 or len({self.as2org[sasn] for sasn in succs}) == 1:
@@ -260,7 +267,9 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, RegexMixin, DebugMixin, H
             # Origin AS is not also a subsequent AS
             if iasn not in succs:
                 # All subsequent ASes are peers of the single origin AS
-                numrels = sum(1 for sasn in succs if self.bgp.peer_rel(iasn, sasn) or (self.norelpeer and iasn in self.norelpeer and not self.bgp.rel(iasn, sasn)))
+                peerrels = {self.as2org[sasn] for sasn in succs if self.bgp.peer_rel(iasn, sasn) or (self.norelpeer and iasn in self.norelpeer and not self.bgp.rel(iasn, sasn))}
+                # numrels = sum(1 for sasn in succs if self.bgp.peer_rel(iasn, sasn) or (self.norelpeer and iasn in self.norelpeer and not self.bgp.rel(iasn, sasn)))
+                numrels = len(peerrels)
                 if debug.DEBUG: print('Peers: {} >= {}'.format(numrels, len(succs) * .85))
                 if numrels >= len(succs) * .85:
                     if debug.DEBUG:
