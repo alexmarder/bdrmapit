@@ -1,3 +1,4 @@
 cython
 jsonschema
 traceutils>=6.15.7
+deprecated
