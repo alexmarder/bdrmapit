@@ -5,3 +5,8 @@
 *.html
 
 __pycache__
+build/
+dist
+*.ipynb
+.DS_Store
+.idea

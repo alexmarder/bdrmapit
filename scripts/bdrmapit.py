@@ -23,6 +23,7 @@ def main():
     parser.add_argument('-c', '--config', required=True, help='JSON config file in accordance with schema.json')
     parser.add_argument('-g', '--graph', help='Graph pickle object created by --graph-only.')
     parser.add_argument('--graph-only', action='store_true', help='Only create the graph, then save it to the specified file.')
+    parser.add_argument('--no-echos', action='store_true', help='Ignore echo-only addresses.')
     args = parser.parse_args()
 
     with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../schema.json')) as f:
@@ -90,7 +91,7 @@ def main():
     nodes_file = config.get('aliases')
     hints_file = config.get('hints')
     use_hints = hints_file is not None
-    graph = prep.construct(nodes_file=nodes_file, hints_file=hints_file)
+    graph = prep.construct(nodes_file=nodes_file, hints_file=hints_file, no_echos=args.no_echos)
 
     bdrmapit = Bdrmapit(graph, as2org, bgp, strict=False)
     bdrmapit.set_dests()
@@ -99,6 +100,8 @@ def main():
 
     save = Save(args.output, bdrmapit, replace=True)
     save.save_annotations()
+    if not args.no_echos:
+        save.save_echos()
     save.save_ixps()
     if args.nodes_as:
         save.save_node_as(args.nodes_as)
