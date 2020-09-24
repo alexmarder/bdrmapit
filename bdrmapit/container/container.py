@@ -1,4 +1,5 @@
 from collections import defaultdict
+from itertools import chain
 from typing import Dict, Union
 
 from traceutils.file2.file2 import fopen
@@ -113,13 +114,17 @@ class Container:
             # interface.echo = echo
             # interface.cycle = cycle
 
-    def create_nodes(self, nodes_file, increment=100000):
+    def create_nodes(self, nodes_file, no_echos: bool = False, increment=100000):
         """
         Create router nodes based on alias resolution.
+        :param no_echos: ignore echo-only addresses
         :param nodes_file: filename containing alias resolution groupings in CAIDA format
         :param increment: increment for status
         """
-        taddrs = self.addrs
+        if not no_echos:
+            taddrs = self.alladdrs()
+        else:
+            taddrs = self.addrs
         pb = Progress(message='Creating nodes', increment=increment, callback=lambda: 'Routers {:,d} Interfaces {:,d}'.format(len(self.routers), len(self.interfaces)))
         with fopen(nodes_file, 'rt') as f:
             for line in pb.iterator(f):
@@ -133,14 +138,20 @@ class Container:
                     for addr in naddrs:
                         self.create_node(addr, router)
 
-    def create_remaining(self, aliases: bool, increment=100000):
+    def create_remaining(self, aliases: bool, no_echos: bool = False, increment=100000):
         """
         Create router nodes for any interfaces not seen in the alias resolution dataset, or when there is not alias resolution dataset.
         :param aliases: flag to indicate if alias resoultion was used
         :param increment: increment for status
         """
-        pb = Progress(len(self.addrs), 'Creating remaining routers and interfaces', increment=increment)
-        for addr in pb.iterator(self.addrs):
+        if not no_echos:
+            taddrs = chain(self.addrs, self.parseres.echos)
+            num_addrs = len(self.addrs) + len(self.parseres.echos)
+        else:
+            taddrs = self.addrs
+            num_addrs = len(self.addrs)
+        pb = Progress(num_addrs, 'Creating remaining routers and interfaces', increment=increment)
+        for addr in pb.iterator(taddrs):
             if not aliases or addr not in self.interfaces:
                 router = Router(addr)
                 self.create_node(addr, router)
@@ -235,7 +246,7 @@ class Container:
         self.interfaces = {}
         self.routers = {}
 
-    def construct(self, nodes_file=None, loop=True, hints_file=None):
+    def construct(self, nodes_file=None, loop=True, hints_file=None, no_echos=False):
         """
         Construct the graph from scratch.
         :param addrs: addresses seen in the dataset
@@ -249,8 +260,8 @@ class Container:
         self.create_edges(loop=loop)
         self.create_dps()
         if nodes_file is not None:
-            self.create_nodes(nodes_file=nodes_file)
-        self.create_remaining(nodes_file is not None)
+            self.create_nodes(nodes_file=nodes_file, no_echos=no_echos)
+        self.create_remaining(nodes_file is not None, no_echos=no_echos)
         self.add_nexthop()
         self.add_multi()
         self.add_dests()
