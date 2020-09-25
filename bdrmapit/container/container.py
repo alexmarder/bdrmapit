@@ -1,5 +1,6 @@
 from collections import defaultdict
 from itertools import chain
+from sys import stderr
 from typing import Dict, Union
 
 from traceutils.file2.file2 import fopen
@@ -40,7 +41,7 @@ class Container:
     def alladdrs(self):
         return set(self.addrs) | set(self.parseres.echos)
 
-    def filter_addrs(self, loop=True):
+    def filter_addrs(self, loop=True, no_echos=False):
         addrs = set()
         firstaddrs = {addr for _, addr in self.parseres.first}
         adjs = self.parseres.nextadjs + self.parseres.multiadjs
@@ -52,7 +53,10 @@ class Container:
                 firstaddrs.discard(y)
         self.addrs = addrs | firstaddrs
         self.addrs |= {addr for addr, _ in self.parseres.dps}
-        self.firstaddrs = {(file, addr) for file, addr in self.parseres.first if addr in firstaddrs}
+        if not no_echos:
+            self.addrs |= self.parseres.echos
+        # self.firstaddrs = {(file, addr) for file, addr in self.parseres.first if addr in firstaddrs}
+        Progress.message('Total addrs: {:,d}'.format(len(self.addrs)), file=stderr)
 
     def create_edges(self, loop=True):
         nexthops = defaultdict(set)
@@ -256,7 +260,7 @@ class Container:
         :param nodes_file: alias resolution dataset
         :return: the graph
         """
-        self.filter_addrs(loop=loop)
+        self.filter_addrs(loop=loop, no_echos=no_echos)
         self.create_edges(loop=loop)
         self.create_dps()
         if nodes_file is not None:

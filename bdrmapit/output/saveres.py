@@ -6,7 +6,7 @@ from collections import Counter
 from typing import Set, Collection
 
 import pandas as pd
-from traceutils.file2 import fopen2
+from traceutils.file2 import fopen2, fopen
 
 from traceutils.progress import Progress
 from traceutils.radix.ip2as import IP2AS
@@ -168,8 +168,8 @@ class Save:
         con.commit()
         con.close()
 
-    def save_node_as(self, filename):
-        with open(filename, 'w') as f:
+    def save_node_as(self, filename, include_all=False):
+        with fopen(filename, 'wt') as f:
             for router in self.bdrmapit.graph.routers.values():
                 if router.name[0] == 'N':
                     update = self.bdrmapit.rupdates[router]

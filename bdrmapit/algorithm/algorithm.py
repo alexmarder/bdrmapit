@@ -192,7 +192,7 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, RegexMixin, DebugMixin, H
     def isnorelpeer(self, iasn):
         return bool(self.norelpeer and iasn in self.norelpeer)
 
-    def annotate_router(self, router: Router, **kwargs):
+    def annotate_router(self, router: Router, first=False, **kwargs):
         isucc: Union[Interface, VRFEdge]
         utype: int = 0
 
@@ -276,12 +276,18 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, RegexMixin, DebugMixin, H
                         print('IASN: {:,d}, Max Vote: {:,d}'.format(votes[iasn], max(votes.values())))
                     # Make sure its votes are not dwarfed by subsequent AS
                     if votes[iasn] > max(votes.values()) / 2:
+                        if first:
+                            return -1, utype + ALLPEER_SUCC
                         # Select the router origin AS
                         return iasn, utype + ALLPEER_SUCC
                     if debug.DEBUG: print('{:,d} > {:.1f}'.format(votes[iasn], max(votes.values()) / 4))
                     if votes[iasn] > max(votes.values()) / 4 and sum(self.bgp.peer_rel(iasn, sasn) for sasn in succs) >= 2:
+                        if first:
+                            return -1, utype + ALLPEER_SUCC
                         return iasn, utype + ALLPEER_SUCC
                     if self.norelpeer is not None and iasn in self.norelpeer and votes[iasn] > max(votes.values()) / 4 and len(succs) >= 3:
+                        if first:
+                            return -1, utype + ALLPEER_SUCC
                         return iasn, utype + ALLPEER_SUCC
                 if len(succs) > 2:
                     numrels = sum(self.bgp.rel(iasn, sasn) for sasn in succs)
@@ -406,7 +412,7 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, RegexMixin, DebugMixin, H
             return self.hidden_asn(iasns, asn, utype, votes)
         return asn, utype
 
-    def annotate_routers(self, routers: Collection[Router], usehints=False, use_provider=False, increment=100000):
+    def annotate_routers(self, routers: Collection[Router], usehints=False, use_provider=False, first=False, increment=100000):
         pb = Progress(len(routers), 'Annotating routers', increment=increment)
         for router in pb.iterator(routers):
             asn = -1
@@ -414,7 +420,7 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, RegexMixin, DebugMixin, H
             if usehints and router.hints:
                 asn, utype = self.annotate_router_hint(router, use_provider=use_provider)
             if asn <= 0:
-                asn, utype = self.annotate_router(router)
+                asn, utype = self.annotate_router(router, first=first)
             self.rupdates.add_update(router, asn, self.as2org[asn], utype)
 
     def annotate_vrf_routers(self, routers: Collection[Router], increment=100000):
@@ -467,7 +473,7 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, RegexMixin, DebugMixin, H
         iteration = 0
         while iterations < 0 or iteration < iterations:
             Progress.message('********** Iteration {:,d} **********'.format(iteration), file=sys.stderr)
-            self.annotate_routers(routers, usehints=usehints, use_provider=use_provider)
+            self.annotate_routers(routers, first=(iteration == 0), usehints=usehints, use_provider=use_provider)
             self.rupdates.advance()
             if vrfrouters:
                 self.annotate_vrf_routers(vrfrouters)
