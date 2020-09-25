@@ -39,11 +39,11 @@ def main():
 
     if 'graph' in config:
         sys.stdout.write('Unpickling graph.')
-        prep = Container.load(config['graph'], ip2as, as2org)
+        prep = Container.load(ip2as, as2org, config['graph'])
         sys.stdout.write(' Done.\n')
     elif args.graph:
         sys.stdout.write('Unpickling graph.')
-        prep = Container.load(args.graph, ip2as, as2org)
+        prep = Container.load(ip2as, as2org, args.graph)
         sys.stdout.write(' Done.\n')
     else:
         if 'warts' not in config and 'atlas' not in config and 'atlas-odd' not in config and 'jsonwarts' not in config:
@@ -101,10 +101,10 @@ def main():
     save = Save(args.output, bdrmapit, replace=True)
     save.save_annotations()
     if not args.no_echos:
-        save.save_echos()
+        save.save_echos(prep.parseres.echos, ip2as, as2org)
     save.save_ixps()
     if args.nodes_as:
-        save.save_node_as(args.nodes_as)
+        save.save_node_as(args.nodes_as, include_all=nodes_file is not None)
 
 if __name__ == '__main__':
     main()

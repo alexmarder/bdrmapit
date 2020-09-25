@@ -28,9 +28,9 @@ if use_cython:
 
 setup(
     name="bdrmapit",
-    version='0.1.1',
+    version='0.1.4',
     packages=find_packages(),
-    install_requires=['jsonschema', 'traceutils>=6.15.7'],
+    install_requires=['jsonschema', 'traceutils>=6.15.7', 'pandas'],
     python_requires='>=3, !=3.8',
     ext_modules=extensions,
     entry_points={
