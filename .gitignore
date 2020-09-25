@@ -5,3 +5,4 @@
 *.html
 
 __pycache__
+.idea/
