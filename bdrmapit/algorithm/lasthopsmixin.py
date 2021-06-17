@@ -106,8 +106,9 @@ class LastHopsMixin(RegexMixin):
         asn = max(dests, key=lambda x: (self.bgp.conesize[x], -x))
         return asn, MISSING_NOINTER
 
-    def annotate_lasthop(self, router: Router):
-        dests = router.dests
+    def annotate_lasthop(self, router: Router, dests=None):
+        if dests is None:
+            dests = router.dests
         iasns = Counter(interface.asn for interface in router.interfaces if interface.asn > 0)
         if debug.DEBUG:
             print('IASNs: {}'.format(iasns))
