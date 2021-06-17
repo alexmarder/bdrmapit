@@ -62,18 +62,21 @@ class Save:
                 iasn = iupdate.asn
                 iorg = iupdate.org
                 itype = iupdate.utype
-            row = {'addr': addr, 'router': router.name, 'asn': rasn, 'org': rorg, 'conn_asn': iasn, 'conn_org': iorg, 'echo': False, 'rtype': rtype, 'itype': itype}
+            phop = bool(interface.pred)
+            row = {'addr': addr, 'router': router.name, 'asn': rasn, 'org': rorg, 'conn_asn': iasn, 'conn_org': iorg, 'echo': False, 'nexthop': router.nexthop, 'phop': phop, 'rtype': rtype, 'itype': itype}
             # if addr == '202.68.67.250':
             #     print(row)
             values.append(row)
         con = sqlite3.connect(self.filename)
-        con.executemany('INSERT INTO annotation (addr, router, asn, org, conn_asn, conn_org, echo, rtype, itype) VALUES (:addr, :router, :asn, :org, :conn_asn, :conn_org, :echo, :rtype, :itype)', values)
+        con.executemany('INSERT INTO annotation (addr, router, asn, org, conn_asn, conn_org, echo, nexthop, phop, rtype, itype) VALUES (:addr, :router, :asn, :org, :conn_asn, :conn_org, :echo, :nexthop, :phop, :rtype, :itype)', values)
         con.commit()
         con.close()
 
     def save_echos(self, echos, ip2as, as2org):
         interface: Interface
         values = []
+        con = sqlite3.connect(self.filename)
+        cur = con.cursor()
         pb = Progress(len(echos), 'Writing echos', increment=100000)
         for addr in pb.iterator(echos):
             rasn = iasn = ip2as[addr]
@@ -82,9 +85,15 @@ class Save:
             itype = 0
             row = {'addr': addr, 'router': addr, 'asn': rasn, 'org': rorg, 'conn_asn': iasn, 'conn_org': iorg, 'echo': True, 'rtype': rtype, 'itype': itype}
             values.append(row)
-        con = sqlite3.connect(self.filename)
-        con.executemany('INSERT INTO annotation (addr, router, asn, org, conn_asn, conn_org, echo, rtype, itype) VALUES (:addr, :router, :asn, :org, :conn_asn, :conn_org, :echo, :rtype, :itype)', values)
+            if len(values) > 100000:
+                cur.executemany(
+                    'INSERT INTO annotation (addr, router, asn, org, conn_asn, conn_org, echo, rtype, itype) VALUES (:addr, :router, :asn, :org, :conn_asn, :conn_org, :echo, :rtype, :itype)',
+                    values)
+                con.commit()
+                values.clear()
+        cur.executemany('INSERT INTO annotation (addr, router, asn, org, conn_asn, conn_org, echo, rtype, itype) VALUES (:addr, :router, :asn, :org, :conn_asn, :conn_org, :echo, :rtype, :itype)', values)
         con.commit()
+        cur.close()
         con.close()
 
     def save_ixps(self):
@@ -98,11 +107,11 @@ class Save:
                     rsucc = isucc.router
                     asn = self.rupdates[rsucc].asn
                     org = self.bdrmapit.as2org[asn]
-                    value = {'addr': isucc.addr, 'router': router.name, 'asn': asn, 'org': org, 'conn_asn': conn_asn, 'conn_org': conn_org, 'pid': pid}
+                    value = {'addr': isucc.addr, 'router': router.name, 'asn': asn, 'org': org, 'conn_asn': conn_asn, 'conn_org': conn_org, 'pid': pid, 'nexthop': router.nexthop}
                     values.append(value)
         con = sqlite3.connect(self.filename)
         cur = con.cursor()
-        cur.executemany('INSERT INTO ixp (addr, router, asn, org, conn_asn, conn_org, pid) VALUES (:addr, :router, :asn, :org, :conn_asn, :conn_org, :pid)', values)
+        cur.executemany('INSERT INTO ixp (addr, router, asn, org, conn_asn, conn_org, pid, nexthop) VALUES (:addr, :router, :asn, :org, :conn_asn, :conn_org, :pid, :nexthop)', values)
         con.commit()
         con.close()
 
@@ -211,7 +220,11 @@ class ITDK:
         self.rupdates = rupdates if rupdates is not None else bdrmapit.rupdates
 
     def default_reason(self, router, update: UpdateObj):
-        if router.succ:
+        if update.asn <= 0:
+            return 'unknown'
+        elif router.hints and update.asn in router.hints:
+            return 'as-hints'
+        elif router.succ:
             return 'refinement'
         elif router.dests:
             return 'lasthop'
@@ -230,10 +243,12 @@ class ITDK:
             reason = 'normal'
         return reason
 
-    def write_nodes(self, filename, reason_func=None):
+    def write_nodes(self, filename, reason_func=None, include_all=False):
+        if reason_func is None:
+            reason_func = self.default_reason
         with fopen2(filename, 'wt') as f:
             for name, router in self.bdrmapit.graph.routers.items():
-                if name[0] == 'N':
+                if include_all or name[0] == 'N':
                     update = self.rupdates[router]
                     asn = update.asn
                     reason = reason_func(router, update)

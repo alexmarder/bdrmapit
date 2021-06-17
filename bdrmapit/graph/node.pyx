@@ -16,6 +16,16 @@ cdef class Router:
     def __repr__(self):
         return 'Router<{}>'.format(self.name)
 
+    cpdef Router copy(self):
+        router = Router(self.name)
+        router.interfaces.extend(self.interfaces)
+        router.nexthop = self.nexthop
+        router.vrf = self.vrf
+        router.succ.update(self.succ)
+        router.dests.update(self.dests)
+        router.origins.update(self.origins)
+        router.hints = self.hints
+        return router
 
 cdef class Interface:
 
@@ -32,3 +42,12 @@ cdef class Interface:
 
     def __repr__(self):
         return 'Interface<{} {}>'.format(self.addr, self.asn)
+
+    cpdef Interface copy(self):
+        iface = Interface(self.addr, self.asn, self.org)
+        iface.router = self.router
+        iface.pred.update(self.pred)
+        iface.dests.update(self.dests)
+        iface.vrf = self.vrf
+        iface.hint = self.hint
+        return iface

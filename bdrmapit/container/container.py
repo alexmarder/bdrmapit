@@ -26,6 +26,7 @@ class Container:
         self.multi = None
         self.dps = None
         self.firstaddrs = None
+        self.echos = None
 
     @classmethod
     def load(cls, ip2as, as2org, *files):
@@ -57,6 +58,9 @@ class Container:
             self.addrs |= self.parseres.echos
         # self.firstaddrs = {(file, addr) for file, addr in self.parseres.first if addr in firstaddrs}
         Progress.message('Total addrs: {:,d}'.format(len(self.addrs)), file=stderr)
+
+    def set_echos(self):
+        pass
 
     def create_edges(self, loop=True):
         nexthops = defaultdict(set)
@@ -234,15 +238,17 @@ class Container:
 
     def add_hints(self, hints: Dict[str, int]):
         for addr, hint in hints.items():
-            interface = self.interfaces[addr]
-            interface.hint = hint
-            if not interface.router.hints:
-                interface.router.hints = {hint}
-            else:
-                interface.router.hints.add(hint)
+            if addr in self.interfaces:
+                interface = self.interfaces[addr]
+                interface.hint = hint
+                if not interface.router.hints:
+                    interface.router.hints = {hint}
+                else:
+                    interface.router.hints.add(hint)
 
     def add_hints_file(self, filename):
-        df = pd.read_csv(filename, sep='\t', index_col=0)
+        print('Adding hints from {}'.format(filename))
+        df = pd.read_csv(filename, sep=r'\s+', index_col=0, names=['addr', 'tasn'])
         hints = dict(df.tasn)
         self.add_hints(hints)
 

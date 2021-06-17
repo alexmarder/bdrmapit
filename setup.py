@@ -2,6 +2,8 @@ import sys
 from setuptools import setup, find_packages
 from setuptools.extension import Extension
 
+exec(open('bdrmapit/version.py').read())
+
 if 'build_ext' in sys.argv:
     from Cython.Distutils import build_ext
     use_cython = True
@@ -28,7 +30,7 @@ if use_cython:
 
 setup(
     name="bdrmapit",
-    version='0.1.4',
+    version=__version__,
     packages=find_packages(),
     install_requires=['jsonschema', 'traceutils>=6.15.7', 'pandas'],
     python_requires='>=3, !=3.8',
@@ -36,7 +38,9 @@ setup(
     entry_points={
         'console_scripts': [
             'bdrmapit=scripts.bdrmapit:main',
-            'traceparser=scripts.traceparser:main'
+            'traceparser=scripts.traceparser:main',
+            'bm_addr=scripts.bm_addr:main',
+            'bm_adj=scripts.bm_adj:main'
         ],
     },
     zip_safe=False,

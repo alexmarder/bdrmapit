@@ -24,7 +24,7 @@ from bdrmapit.vrf.vrfedge import VRFEdge
 
 class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, RegexMixin, DebugMixin, HelpersMixin):
 
-    def __init__(self, graph: Graph, as2org: AS2Org, bgp: BGP, ixpasns=None, strict=True, skipua=False, hidden_reverse=True, norelpeer: Set[int]=None):
+    def __init__(self, graph: Graph, as2org: AS2Org, bgp: BGP, ixpasns=None, strict=False, skipua=False, hidden_reverse=True, norelpeer: Set[int]=None, interfaces: Collection[Interface]=None):
         self.graph = graph
         self.as2org = as2org
         self.bgp = bgp
@@ -36,7 +36,11 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, RegexMixin, DebugMixin, H
         self.lasthops: List[Router] = []
         self.routers_succ: List[Router] = []
         self.routers_vrf: List[Router] = []
-        for router in graph.routers.values():
+        if interfaces is None:
+            routers = graph.routers.values()
+        else:
+            routers = (iface.router for iface in interfaces)
+        for router in routers:
             if router.succ:
                 if router.vrf:
                     self.routers_vrf.append(router)
@@ -45,7 +49,9 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, RegexMixin, DebugMixin, H
             else:
                 self.lasthops.append(router)
         self.routers_vrf = sorted(self.routers_vrf, key=self.sort_vrf)
-        self.interfaces_pred: List[Interface] = [i for i in graph.interfaces.values() if i.pred]
+        if interfaces is None:
+            interfaces = graph.interfaces.values()
+        self.interfaces_pred: List[Interface] = [i for i in interfaces if i.pred]
         self.previous_updates = []
         self.strict = strict
         self.skipua = skipua
@@ -60,6 +66,8 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, RegexMixin, DebugMixin, H
 
         # If subsequent interface is an IXP interface, use interface AS
         if isucc.asn <= -100:
+            # ixp_succs = sum(1 for s in router.succ if s.asn == isucc.asn)
+            # if ixp_succs >= 3 or ixp_succs >= len(router.succ) * .5:
             ixpasns = self.ixpasns.get(isucc.asn)
             if ixpasns:
                 if debug.DEBUG: print('IXP ASNs: {}'.format(len(ixpasns)))
@@ -220,6 +228,8 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, RegexMixin, DebugMixin, H
                 succs[succ_asn] += 1  # record vote
                 sasn_origins[succ_asn].update(origins)  # record origin ASes seen before interface
         if debug.DEBUG: print('Succs: {}'.format(succs))
+        # if not router.nexthop:
+        #     return self.annotate_lasthop(router, succs.keys() | router.dests)
 
         # Create votes counter and add interface AS
         votes = succs + iasns
@@ -245,7 +255,8 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, RegexMixin, DebugMixin, H
             iasn = peek(iasns)
             sasn = peek(succs)
             if iasns[iasn] == succs[sasn]:
-                if self.bgp.peer_rel(iasn, sasn) or (self.norelpeer and iasn in self.norelpeer and not self.bgp.rel(iasn, sasn)):
+                if self.norelpeer and iasn in self.norelpeer and (self.bgp.peer_rel(iasn, sasn) or not self.bgp.rel(iasn, sasn)):
+                # if self.bgp.peer_rel(iasn, sasn) or (self.norelpeer and iasn in self.norelpeer and not self.bgp.rel(iasn, sasn)):
                     return sasn, 5600
 
         # Deal specially with cases where there is only a single subsequent AS, or subsequent ORG
@@ -271,24 +282,30 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, RegexMixin, DebugMixin, H
                 numrels = len(peerrels)
                 if debug.DEBUG: print('Peers: {} >= {}'.format(numrels, len(succs) * .85))
                 if numrels >= len(succs) * .85:
+                    max_vote = max(votes.values())
                     if debug.DEBUG:
                         print('All peers or norels: True')
-                        print('IASN: {:,d}, Max Vote: {:,d}'.format(votes[iasn], max(votes.values())))
-                    # Make sure its votes are not dwarfed by subsequent AS
-                    if votes[iasn] > max(votes.values()) / 2:
-                        if first:
-                            return -1, utype + ALLPEER_SUCC
-                        # Select the router origin AS
-                        return iasn, utype + ALLPEER_SUCC
-                    if debug.DEBUG: print('{:,d} > {:.1f}'.format(votes[iasn], max(votes.values()) / 4))
-                    if votes[iasn] > max(votes.values()) / 4 and sum(self.bgp.peer_rel(iasn, sasn) for sasn in succs) >= 2:
-                        if first:
-                            return -1, utype + ALLPEER_SUCC
-                        return iasn, utype + ALLPEER_SUCC
-                    if self.norelpeer is not None and iasn in self.norelpeer and votes[iasn] > max(votes.values()) / 4 and len(succs) >= 3:
-                        if first:
-                            return -1, utype + ALLPEER_SUCC
-                        return iasn, utype + ALLPEER_SUCC
+                        print('IASN: {:,d}, Max Vote: {:,d}'.format(votes[iasn], max_vote))
+                    if self.isnorelpeer(iasn):
+                        if (votes[iasn] > max_vote / 4 and len(succs) >= 3) or max_vote == 1:
+                            for x in succs:
+                                if all(y in self.bgp.cone[x] for y in succs if y != x):
+                                    return x, utype + ALLPEER_SUCC
+                            if first:
+                                return -1, utype + ALLPEER_SUCC
+                            return iasn, utype + ALLPEER_SUCC
+                    else:
+                        # Make sure its votes are not dwarfed by subsequent AS
+                        if votes[iasn] > max_vote / 2:
+                            if first:
+                                return -1, utype + ALLPEER_SUCC
+                            # Select the router origin AS
+                            return iasn, utype + ALLPEER_SUCC
+                        if debug.DEBUG: print('{:,d} > {:.1f}'.format(votes[iasn], max_vote / 4))
+                        if votes[iasn] > max_vote / 4 and sum(self.bgp.peer_rel(iasn, sasn) for sasn in succs) >= 2:
+                            if first:
+                                return -1, utype + ALLPEER_SUCC
+                            return iasn, utype + ALLPEER_SUCC
                 if len(succs) > 2:
                     numrels = sum(self.bgp.rel(iasn, sasn) for sasn in succs)
                     if debug.DEBUG: print('Rels: {} >= {}'.format(numrels, len(succs) * .9))
@@ -331,6 +348,10 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, RegexMixin, DebugMixin, H
             utype += VOTE_SINGLE
         else:
             asn = None
+            if len(iasns) == 1:
+                iasn = peek(iasns)
+                if self.norelpeer and iasn in self.norelpeer and iasn not in succs and len(succs) > 1 and all(votes[asn] == 1 for asn in asns):
+                    return iasn, 24
             # Tiebreaker 1
             if asn is None and len(router.succ) == 1 and router.nexthop:
                 isucc = peek(router.succ)  # single subsequent interface
@@ -403,12 +424,12 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, RegexMixin, DebugMixin, H
             # for iasn in iasns:
             #     if iasn > 0 and iasn in router.dests:
             #         return iasn, 43
-            if not router.dests & votes.keys():
-                dasns = {dasn for dasn in router.dests if any(iasn == dasn or self.bgp.rel(iasn, dasn) for iasn in iasns)}
-                if debug.DEBUG:
-                    print('DASNs: {}'.format(dasns))
-                if len(dasns) == 1:
-                    return peek(dasns), 42
+            # if not router.dests & votes.keys():
+            #     dasns = {dasn for dasn in router.dests if any(iasn == dasn or self.bgp.rel(iasn, dasn) for iasn in iasns)}
+            #     if debug.DEBUG:
+            #         print('DASNs: {}'.format(dasns))
+            #     if len(dasns) == 1:
+            #         return peek(dasns), 42
             return self.hidden_asn(iasns, asn, utype, votes)
         return asn, utype
 

@@ -124,7 +124,7 @@
     "max_iterations": {
       "description": "Maximum number of iterations to run the graph refinement loop",
       "type": "integer",
-      "default": 10
+      "default": 5
     },
     "graph": {
       "description": "Graph file created by the --graph-only option",

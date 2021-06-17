@@ -6,6 +6,8 @@ CREATE TABLE annotation(
     conn_asn INT,
     conn_org TEXT,
     echo BOOLEAN,
+    nexthop BOOLEAN,
+    phop BOOLEAN,
     rtype INT,
     itype INT
 );
@@ -17,7 +19,8 @@ CREATE TABLE ixp(
     org TEXT,
     conn_asn INT,
     conn_org TEXT,
-    pid INT
+    pid INT,
+    nexthop BOOLEAN
 );
 
 CREATE TABLE link(

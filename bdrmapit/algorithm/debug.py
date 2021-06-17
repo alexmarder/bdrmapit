@@ -81,10 +81,13 @@ class DebugMixin(ABC):
 
     def test_router(self, nid, rupdates=None, iupdates=None, usehints=False, **kwargs):
         with Debug(self, rupdates=rupdates, iupdates=iupdates):
-            try:
-                r: Router = self.graph.routers[nid]
-            except KeyError:
-                r: Router = self.graph.interfaces[nid].router
+            if isinstance(nid, Router):
+                r: Router = nid
+            else:
+                try:
+                    r: Router = self.graph.routers[nid]
+                except KeyError:
+                    r: Router = self.graph.interfaces[nid].router
             if usehints:
                 asn, utype = self.annotate_router_hint(r, **kwargs)
                 if asn > 0:
