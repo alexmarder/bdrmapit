@@ -133,6 +133,10 @@
     "hints": {
       "description": "Regex extracted hints",
       "type": "string"
+    },
+    "peeringdb": {
+      "description": "PeeringDB JSON file (recommended)",
+      "type": "string"
     }
   },
   "required": ["ip2as"]

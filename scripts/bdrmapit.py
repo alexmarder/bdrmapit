@@ -31,6 +31,7 @@ def set_bdrmapit_parser(parser: ArgumentParser):
     group = parser.add_argument_group('CAIDA AS Relationships')
     group.add_argument('-r', '--rels', required=True, help='The CAIDA relationship file that indicates provider or peer relationships.')
     group.add_argument('-c', '--cone', required=True, help='The CAIDA customer cone file.')
+    group.add_argument('-P', '--peeringdb', help='PeeringDB json file (recommended).')
     parser.add_argument('-R', '--routers', help='Alias resolution file in CAIDA ITDK format.')
     parser.add_argument('-I', '--max-iterations', default=5, type=int, help='Maximum number of iterations to run the graph refinement loop.')
     parser.add_argument('-H', '--as-hints', help='AS hints file.')
@@ -75,6 +76,7 @@ def run_from_config(args):
         args.max_iterations = config['max_iterations']
         args.routers = config.get('aliases')
         args.as_hints = config.get('hints')
+        args.peeringdb = config.get('peeringdb')
 
 def main(args=None):
     if args is None:
@@ -136,6 +138,8 @@ def main(args=None):
     graph = prep.construct(nodes_file=args.routers, hints_file=args.as_hints, no_echos=args.no_echos)
 
     bdrmapit = Bdrmapit(graph, as2org, bgp, strict=False)
+    if args.peeringdb:
+        bdrmapit.peeringdb_ixpasns(args.peeringdb, ip2as)
     bdrmapit.set_dests()
     bdrmapit.annotate_lasthops(usehints=use_hints, use_provider=True)
     bdrmapit.graph_refinement(bdrmapit.routers_succ, bdrmapit.interfaces_pred, iterations=args.max_iterations, usehints=use_hints, use_provider=True)

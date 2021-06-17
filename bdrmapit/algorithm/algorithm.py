@@ -4,7 +4,9 @@ from typing import Collection, List, Set, Dict, Union, Counter as TCounter, Opti
 
 from traceutils.as2org.as2org import AS2Org
 from traceutils.bgp.bgp import BGP
+from traceutils.ixps import PeeringDB
 from traceutils.progress.bar import Progress
+from traceutils.radix.ip2as import IP2AS
 from traceutils.utils.utils import max_num, peek
 
 from bdrmapit.algorithm import debug
@@ -58,6 +60,14 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, RegexMixin, DebugMixin, H
         self.hidden_reverse = hidden_reverse
         self.norelpeer = norelpeer
         self.ixpasns = {} if ixpasns is None else ixpasns
+
+    def peeringdb_ixpasns(self, peeringdb, ip2as: IP2AS):
+        if isinstance(peeringdb, str):
+            peeringdb = PeeringDB(peeringdb)
+        self.ixpasns = defaultdict(set)
+        for addr, asn in peeringdb.addrs.items():
+            self.ixpasns[ip2as[addr]].add(asn)
+        self.ixpasns.default_factory = None
 
     def router_heuristics(self, router: Router, isucc: Interface, origins: Set[int], iasns: TCounter[int]):
         rsucc: Router = isucc.router  # subsequent router
