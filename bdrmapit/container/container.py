@@ -13,6 +13,9 @@ from bdrmapit.vrf.vrfedge import VRFEdge
 
 import pandas as pd
 
+def construct_graph(ip2as, as2org, filename):
+    prep = Container.load(ip2as, as2org, filename)
+    return prep.construct(no_echos=True)
 
 class Container:
     def __init__(self, ip2as, as2org, parseres: ParseResults):

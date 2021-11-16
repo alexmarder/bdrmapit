@@ -41,6 +41,8 @@ class Save:
         interface: Interface
         values = []
         pb = Progress(len(self.bdrmapit.graph.interfaces), 'Writing annotations', increment=100000)
+        con = sqlite3.connect(self.filename)
+        cur = con.cursor()
         for interface in pb.iterator(self.bdrmapit.graph.interfaces.values()):
             addr = interface.addr
             router: Router = interface.router
@@ -63,13 +65,18 @@ class Save:
                 iorg = iupdate.org
                 itype = iupdate.utype
             phop = bool(interface.pred)
-            row = {'addr': addr, 'router': router.name, 'asn': rasn, 'org': rorg, 'conn_asn': iasn, 'conn_org': iorg, 'echo': False, 'nexthop': router.nexthop, 'phop': phop, 'rtype': rtype, 'itype': itype}
+            row = {'addr': addr, 'router': router.name, 'asn': rasn, 'org': rorg, 'conn_asn': iasn, 'conn_org': iorg, 'echo': False, 'nexthop': router.nexthop, 'phop': phop, 'rtype': rtype, 'itype': itype, 'iasn': interface.asn}
             # if addr == '202.68.67.250':
             #     print(row)
             values.append(row)
-        con = sqlite3.connect(self.filename)
-        con.executemany('INSERT INTO annotation (addr, router, asn, org, conn_asn, conn_org, echo, nexthop, phop, rtype, itype) VALUES (:addr, :router, :asn, :org, :conn_asn, :conn_org, :echo, :nexthop, :phop, :rtype, :itype)', values)
-        con.commit()
+            if len(values) > 100000:
+                cur.executemany('INSERT INTO annotation (addr, router, asn, org, conn_asn, conn_org, echo, nexthop, phop, rtype, itype, iasn) VALUES (:addr, :router, :asn, :org, :conn_asn, :conn_org, :echo, :nexthop, :phop, :rtype, :itype, :iasn)', values)
+                con.commit()
+                values.clear()
+        if values:
+            cur.executemany('INSERT INTO annotation (addr, router, asn, org, conn_asn, conn_org, echo, nexthop, phop, rtype, itype, iasn) VALUES (:addr, :router, :asn, :org, :conn_asn, :conn_org, :echo, :nexthop, :phop, :rtype, :itype, :iasn)', values)
+            con.commit()
+        cur.close()
         con.close()
 
     def save_echos(self, echos, ip2as, as2org):
@@ -91,8 +98,9 @@ class Save:
                     values)
                 con.commit()
                 values.clear()
-        cur.executemany('INSERT INTO annotation (addr, router, asn, org, conn_asn, conn_org, echo, rtype, itype) VALUES (:addr, :router, :asn, :org, :conn_asn, :conn_org, :echo, :rtype, :itype)', values)
-        con.commit()
+        if values:
+            cur.executemany('INSERT INTO annotation (addr, router, asn, org, conn_asn, conn_org, echo, rtype, itype) VALUES (:addr, :router, :asn, :org, :conn_asn, :conn_org, :echo, :rtype, :itype)', values)
+            con.commit()
         cur.close()
         con.close()
 
