@@ -13,8 +13,14 @@ from bdrmapit.vrf.vrfedge import VRFEdge
 
 import pandas as pd
 
-def construct_graph(ip2as, as2org, filename):
+def construct_graph(ip2as, as2org, filename, remove_edges=None):
     prep = Container.load(ip2as, as2org, filename)
+    if remove_edges is not None:
+        for x, y in remove_edges:
+            if (x, y) in prep.parseres.nextadjs:
+                del prep.parseres.nextadjs[x, y]
+            if (x, y) in prep.parseres.multiadjs:
+                del prep.parseres.multiadjs[x, y]
     return prep.construct(no_echos=True)
 
 class Container:
