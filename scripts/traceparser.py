@@ -90,8 +90,12 @@ def parse(tfile: TraceFile):
     else:
         raise Exception('Invalid output type: {}.'.format(tfile.type))
     f.open()
-    public_ip4 = _filemap4[f.hostname] if f.hostname in _filemap4 else _filemap4.get(tfile.filename)
-    public_ip6 = _filemap6[f.hostname] if f.hostname in _filemap6 else _filemap6.get(tfile.filename)
+    if f.addr:
+        public_ip4 = f.addr
+        public_ip6 = f.addr
+    else:
+        public_ip4 = _filemap4[f.hostname] if f.hostname in _filemap4 else _filemap4.get(tfile.filename)
+        public_ip6 = _filemap6[f.hostname] if f.hostname in _filemap6 else _filemap6.get(tfile.filename)
     try:
         fiter = iter(f)
         while True:
