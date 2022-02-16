@@ -32,7 +32,7 @@ setup(
     name="bdrmapit",
     version=__version__,
     packages=find_packages(),
-    install_requires=['jsonschema', 'traceutils>=6.15.7', 'pandas'],
+    install_requires=['jsonschema', 'traceutils>=6.15.7', 'pandas', 'pb-amarder', 'file2'],
     python_requires='>=3, !=3.8',
     ext_modules=extensions,
     entry_points={
