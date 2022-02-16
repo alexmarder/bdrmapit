@@ -69,10 +69,12 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, RegexMixin, DebugMixin, H
             self.ixpasns[ip2as[addr]].add(asn)
         self.ixpasns.default_factory = None
 
-    def router_heuristics(self, router: Router, isucc: Interface, origins: Set[int], iasns: TCounter[int]):
+    def router_heuristics(self, router: Router, isucc: Interface, origins: Set[int], iasns: TCounter[int], use_third=True, use_update=True):
         rsucc: Router = isucc.router  # subsequent router
         rsucc_asn = self.rupdates.asn(rsucc)  # subsequent router AS annotation
         iupdate = self.iupdates[isucc]  # update for subsequent interface (interface annotation)
+        if debug.DEBUG:
+            print(iupdate)
 
         # If subsequent interface is an IXP interface, use interface AS
         if isucc.asn <= -100:
@@ -90,10 +92,15 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, RegexMixin, DebugMixin, H
         if isucc.asn == 0:
             return rsucc_asn if not self.skipua else -1
 
-        if iupdate and self.as2org[rsucc_asn] == isucc.org:
+        if use_update and iupdate and self.as2org[rsucc_asn] == isucc.org:
             succ_asn = iupdate.asn
             succ_org = iupdate.org
             if succ_asn <= 0:
+                succ_asn = isucc.asn
+                succ_org = isucc.org
+            elif False and succ_asn not in origins and len(router.dests & self.bgp.cone[isucc.asn]) > len(router.dests & self.bgp.cone[succ_asn]):
+                if debug.DEBUG:
+                    print(len(router.dests), len(router.dests & self.bgp.cone[isucc.asn]), len(router.dests & self.bgp.cone[succ_asn]))
                 succ_asn = isucc.asn
                 succ_org = isucc.org
             # elif isucc.asn in router.dests and all(iasn <= 0 for iasn in origins):
@@ -105,65 +112,66 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, RegexMixin, DebugMixin, H
         if debug.DEBUG: print('\tASN={}, RASN={}, IUpdate={} VRF={}'.format(isucc.asn, rsucc_asn, succ_asn, router.vrf))
 
         # Third party stuff
-        third = False
-        if any(iasn > 0 for iasn in origins) and not any(isucc.org == self.as2org[iasn] for iasn in origins):
-            # If here, subsequent interface is not in IR origin ASes
-            if rsucc_asn > 0:
-                # If here, the subsequent router has an AS annotation
-                rsucc_org = self.as2org[rsucc_asn]
-                if rsucc_org != succ_org and not any(succ_org == self.as2org[iasn] for iasn in origins):
-                    # If here, subsequent router AS is different from the subsequent interface AS
-                    if debug.DEBUG:
-                        print('\tThird party: Router={}, RASN={}'.format(rsucc.name, rsucc_asn))
-                        print('\tAny origin-router rels? {}'.format(rsucc_asn in origins or self.any_rels(rsucc_asn, origins)))
-                    if rsucc_asn in origins or self.any_rels(rsucc_asn, origins):
-                        # If here, some origin AS matches the subsequent router's AS annotation
-                        # Or, some origin AS directly interconnects with the subsequent routers AS annotation
-
-                        # Number of destination in subsequent interface origin AS customer cone
-                        s_conesize = len(router.dests & self.bgp.cone[succ_asn])
-                        # Number of destination in subsequent router AS annotation customer cone
-                        r_conesize = len(router.dests & self.bgp.cone[rsucc_asn])
+        if use_third:
+            third = False
+            if any(iasn > 0 for iasn in origins) and not any(isucc.org == self.as2org[iasn] for iasn in origins):
+                # If here, subsequent interface is not in IR origin ASes
+                if rsucc_asn > 0:
+                    # If here, the subsequent router has an AS annotation
+                    rsucc_org = self.as2org[rsucc_asn]
+                    if rsucc_org != succ_org and not any(succ_org == self.as2org[iasn] for iasn in origins):
+                        # If here, subsequent router AS is different from the subsequent interface AS
                         if debug.DEBUG:
-                            if len(router.dests) <= 5:
-                                print('\tISUCC in Dests: {} in {}'.format(succ_asn, router.dests))
-                            else:
-                                print('\tISUCC not in Dests: {}'.format(succ_asn not in router.dests))
-                            print('\t{} < {}'.format(s_conesize, r_conesize))
-                        if succ_asn not in router.dests:
-                            # If here, the subsequent AS is not in the router's destination ASes
-                            if s_conesize <= r_conesize:
-                                # If here, at least as many destinations are in the router AS annotation cone than in the subsequent interface origin AS cone
-                                third = True
-                        elif not self.any_rels(succ_asn, origins) and self.bgp.rel(succ_asn, rsucc_asn):
-                            # If here, none of the origins connect to the subsequent interface origin AS,
-                            # and the subsequent interface AS has a relationship with the router AS annotation.
-                            third = True
+                            print('\tThird party: Router={}, RASN={}'.format(rsucc.name, rsucc_asn))
+                            print('\tAny origin-router rels? {}'.format(rsucc_asn in origins or self.any_rels(rsucc_asn, origins)))
+                        if rsucc_asn in origins or self.any_rels(rsucc_asn, origins):
+                            # If here, some origin AS matches the subsequent router's AS annotation
+                            # Or, some origin AS directly interconnects with the subsequent routers AS annotation
 
-            # When there is no relationship between router ASes and subsequent interface AS,
-            # check if relationship between router ASes and subsequent router AS when they are the same org
-            if succ_org == self.as2org[rsucc_asn]:
-                if not any(self.bgp.rel(iasn, succ_asn) for iasn in iasns):
-                    if any(self.bgp.rel(iasn, rsucc_asn) for iasn in iasns):
-                        if debug.DEBUG: print('Testing')
-                        # return rsucc_asn
-                        third = True
-        if third:
-            # Third party was detected!
-            rsucc_cone = self.bgp.cone[rsucc_asn]  # subsequent router AS annotation customer cone
-            if debug.DEBUG:
-                if len(router.dests) <= 5:
-                    print('\tDests: {}'.format(router.dests))
-                if len(rsucc_cone) <= 5:
-                    print('\tCone: {}'.format(rsucc_cone))
-            if all(dasn == rsucc_asn or dasn in rsucc_cone for dasn in router.dests):
-                # If here, all destination ASes are in the customer cone of the subsequent router's AS annotation
-                return rsucc_asn
-            if debug.DEBUG:
-                for origin in origins:
-                    print('\tOrigin {}: RSUCC overlap {} ? SUCC overlap {}'.format(origin, len(router.dests & rsucc_cone), len(router.dests & self.bgp.cone[origin])))
-            # Otherwise, ignore vote
-            return -1
+                            # Number of destination in subsequent interface origin AS customer cone
+                            s_conesize = len(router.dests & self.bgp.cone[succ_asn])
+                            # Number of destination in subsequent router AS annotation customer cone
+                            r_conesize = len(router.dests & self.bgp.cone[rsucc_asn])
+                            if debug.DEBUG:
+                                if len(router.dests) <= 5:
+                                    print('\tISUCC in Dests: {} in {}'.format(succ_asn, router.dests))
+                                else:
+                                    print('\tISUCC not in Dests: {}'.format(succ_asn not in router.dests))
+                                print('\t{} < {}'.format(s_conesize, r_conesize))
+                            if succ_asn not in router.dests:
+                                # If here, the subsequent AS is not in the router's destination ASes
+                                if s_conesize <= r_conesize:
+                                    # If here, at least as many destinations are in the router AS annotation cone than in the subsequent interface origin AS cone
+                                    third = True
+                            elif not self.any_rels(succ_asn, origins) and self.bgp.rel(succ_asn, rsucc_asn):
+                                # If here, none of the origins connect to the subsequent interface origin AS,
+                                # and the subsequent interface AS has a relationship with the router AS annotation.
+                                third = True
+
+                # When there is no relationship between router ASes and subsequent interface AS,
+                # check if relationship between router ASes and subsequent router AS when they are the same org
+                if succ_org == self.as2org[rsucc_asn]:
+                    if not any(self.bgp.rel(iasn, succ_asn) for iasn in iasns):
+                        if any(self.bgp.rel(iasn, rsucc_asn) for iasn in iasns):
+                            if debug.DEBUG: print('Testing')
+                            # return rsucc_asn
+                            third = True
+            if third:
+                # Third party was detected!
+                rsucc_cone = self.bgp.cone[rsucc_asn]  # subsequent router AS annotation customer cone
+                if debug.DEBUG:
+                    if len(router.dests) <= 5:
+                        print('\tDests: {}'.format(router.dests))
+                    if len(rsucc_cone) <= 5:
+                        print('\tCone: {}'.format(rsucc_cone))
+                if all(dasn == rsucc_asn or dasn in rsucc_cone for dasn in router.dests):
+                    # If here, all destination ASes are in the customer cone of the subsequent router's AS annotation
+                    return rsucc_asn
+                if debug.DEBUG:
+                    for origin in origins:
+                        print('\tOrigin {}: RSUCC overlap {} ? SUCC overlap {}'.format(origin, len(router.dests & rsucc_cone), len(router.dests & self.bgp.cone[origin])))
+                # Otherwise, ignore vote
+                return -1
 
         # TODO: Figure out something better to do here
         if succ_asn <= 0 or (rsucc_asn > 0 and self.as2org[rsucc_asn] != isucc.org):
@@ -210,7 +218,54 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, RegexMixin, DebugMixin, H
     def isnorelpeer(self, iasn):
         return bool(self.norelpeer and iasn in self.norelpeer)
 
-    def annotate_router(self, router: Router, first=False, **kwargs):
+    def count_votes_test(self, router):
+        if isinstance(router, str):
+            router = self.graph.routers[router]
+        iasns: TCounter[int] = Counter(interface.asn for interface in router.interfaces if interface.asn > 0)
+        succs_init = Counter()
+        succs = Counter()  # Subsequent interface vote recorder
+        sasn_origins = defaultdict(set)  # Origins seen prior to subsequent interfaces
+        succ_map = defaultdict(list)
+        self.count_votes(router, iasns, succs_init, succs, sasn_origins, succ_map)
+        return succs
+
+    def count_votes(self, router, iasns, succs_init, succs, sasn_origins, succ_map, remap=True):
+        for isucc in router.succ:
+            origins = router.origins[isucc]  # Origins seen prior to subsequent interface
+            if debug.DEBUG: print('Succ={}, ASN={}, Origins={} RSucc={}'.format(isucc.addr, isucc.asn, origins, isucc.router.name))
+            if remap:
+                succ_asn_init = self.router_heuristics(router, isucc, origins, iasns, use_third=False, use_update=False)  # AS vote for the subsequent interface
+                if debug.DEBUG:
+                    print('\tHeuristic Init: {}'.format(succ_asn_init))
+                # If vote is useful
+                if succ_asn_init > 0:
+                    succs_init[succ_asn_init] += 1
+            succ_asn = self.router_heuristics(router, isucc, origins, iasns)  # AS vote for the subsequent interface
+            if debug.DEBUG:
+                print('\tHeuristic: {}'.format(succ_asn))
+            if succ_asn > 0:
+                succs[succ_asn] += 1  # record vote
+                sasn_origins[succ_asn].update(origins)  # record origin ASes seen before interface
+                succ_map[succ_asn].append(isucc)
+        if debug.DEBUG: print('Succs: {}'.format(succs))
+
+        if remap:
+            if router in self.rupdates:
+                for sasn, isuccs in succ_map.items():
+                    if not all(isucc.router in self.rupdates for isucc in isuccs):
+                        continue
+                    rasns = Counter(self.rupdates[isucc.router].asn for isucc in isuccs)
+                    rasn = max(rasns, key=lambda x: rasns[x])
+                    if (len(isuccs) + succs.get(rasn, 0) >= 3) and rasns[rasn] >= len(isuccs) * 0.9:
+                        if rasn != sasn:
+                            if debug.DEBUG:
+                                print('Remapping {} -> {} ({}/{}={})'.format(sasn, rasn, rasns[rasn], len(isuccs), rasns[rasn] / len(isuccs)))
+                            succs[rasn] += succs[sasn]
+                            del succs[sasn]
+            if debug.DEBUG:
+                print('Succs: {}'.format(succs))
+
+    def annotate_router(self, router: Router, first=False, remap=False, **kwargs):
         isucc: Union[Interface, VRFEdge]
         utype: int = 0
 
@@ -224,22 +279,49 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, RegexMixin, DebugMixin, H
             print('VRF={}'.format(router.vrf))
 
         # Use heuristics to determine link votes
+        succs_init = Counter()
         succs = Counter()  # Subsequent interface vote recorder
         sasn_origins = defaultdict(set)  # Origins seen prior to subsequent interfaces
+        succ_map = defaultdict(list)
+        self.count_votes(router, iasns, succs_init, succs, sasn_origins, succ_map, remap=remap)
+        # # For each subsequent interface
+        # for isucc in router.succ:
+        #     origins = router.origins[isucc]  # Origins seen prior to subsequent interface
+        #     if debug.DEBUG: print('Succ={}, ASN={}, Origins={} RSucc={}'.format(isucc.addr, isucc.asn, origins, isucc.router.name))
+        #     succ_asn_init = self.router_heuristics(router, isucc, origins, iasns, use_third=False, use_update=False)  # AS vote for the subsequent interface
+        #     succ_asn = self.router_heuristics(router, isucc, origins, iasns)  # AS vote for the subsequent interface
+        #     if debug.DEBUG:
+        #         print('\tHeuristic: {}'.format(succ_asn))
+        #         print('\tHeuristic Init: {}'.format(succ_asn_init))
+        #     # If vote is useful
+        #     if succ_asn_init > 0:
+        #         succs_init[succ_asn_init] += 1
+        #     if succ_asn > 0:
+        #         succs[succ_asn] += 1  # record vote
+        #         sasn_origins[succ_asn].update(origins)  # record origin ASes seen before interface
+        #         succ_map[succ_asn].append(isucc)
+        # if debug.DEBUG: print('Succs: {}'.format(succs))
+        #
+        # if router in self.rupdates:
+        #     for sasn, isuccs in succ_map.items():
+        #         if not all(isucc.router in self.rupdates for isucc in isuccs):
+        #             continue
+        #         rasns = Counter(self.rupdates[isucc.router].asn for isucc in isuccs)
+        #         rasn = max(rasns, key=lambda x: rasns[x])
+        #         if (len(isuccs) + succs.get(rasn, 0) >= 3) and rasns[rasn] >= len(isuccs) * 0.9:
+        #             if rasn != sasn:
+        #                 if debug.DEBUG:
+        #                     print('Remapping {} -> {} ({}/{}={})'.format(sasn, rasn, rasns[rasn], len(isuccs), rasns[rasn] / len(isuccs)))
+        #                 succs[rasn] += succs[sasn]
+        #                 del succs[sasn]
+        #
+        # if debug.DEBUG:
+        #     print('Succs: {}'.format(succs))
+
         sorigins = Counter(isucc.asn for isucc in router.succ)
-        # For each subsequent interface
-        for isucc in router.succ:
-            origins = router.origins[isucc]  # Origins seen prior to subsequent interface
-            if debug.DEBUG: print('Succ={}, ASN={}, Origins={} RSucc={}'.format(isucc.addr, isucc.asn, origins, isucc.router.name))
-            succ_asn = self.router_heuristics(router, isucc, origins, iasns)  # AS vote for the subsequent interface
-            if debug.DEBUG: print('Heuristic: {}'.format(succ_asn))
-            # If vote is useful
-            if succ_asn > 0:
-                succs[succ_asn] += 1  # record vote
-                sasn_origins[succ_asn].update(origins)  # record origin ASes seen before interface
-        if debug.DEBUG: print('Succs: {}'.format(succs))
-        # if not router.nexthop:
-        #     return self.annotate_lasthop(router, succs.keys() | router.dests)
+
+        if len(succs_init) == 1 and len(router.succ) >= 3 and sum(succs_init.values()) == len(router.succ):
+            return peek(succs_init), 20300
 
         # Create votes counter and add interface AS
         votes = succs + iasns
@@ -247,6 +329,23 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, RegexMixin, DebugMixin, H
         if not succs:
             # return -1, -1
             return self.annotate_lasthop(router)
+
+        if False and all(interface.asn <= -100 for interface in router.interfaces):
+            lasn, _ = self.annotate_lasthop(router)
+            rasn = max(votes, key=lambda x: votes[x])
+            numvotes = sum(votes.values())
+            if numvotes < 4 or votes[rasn] / numvotes < .75:
+                if lasn != rasn:
+                    incone = rasn in self.bgp.cone[lasn]
+                    inconenum = sum(1 for dest in router.dests if dest != lasn if dest in self.bgp.cone[lasn])
+                    allincone = inconenum >= max(1., (len(router.dests)-1) * .9)
+                    if debug.DEBUG:
+                        print('Last Hop: {}'.format(lasn))
+                        print('Most Votes: {}'.format(rasn))
+                        print('{} in cone for {}? {}'.format(rasn, lasn, incone))
+                        print('All in cone for {}? {} >= {}'.format(lasn, inconenum, len(router.dests) * 1))
+                    if len(router.dests) > 2 and incone and allincone and self.bgp.conesize[lasn] < 100:
+                        return lasn, 84321
 
         # if iasns and succs and any(sasn in iasns or sasn in self.multi_customers(sasn_origins[sasn]) for sasn in succs):
         #     maxrels = {}
@@ -297,6 +396,10 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, RegexMixin, DebugMixin, H
                         print('All peers or norels: True')
                         print('IASN: {:,d}, Max Vote: {:,d}'.format(votes[iasn], max_vote))
                     if self.isnorelpeer(iasn):
+                        # if (votes[iasn] > max_vote / 4 and len(succs) >= 2) or max_vote == 1:
+                        #     asn, _ = self.annotate_lasthop(router)
+                        #     if asn in succs:
+                        #         return asn, 4532
                         if (votes[iasn] > max_vote / 4 and len(succs) >= 3) or max_vote == 1:
                             for x in succs:
                                 if all(y in self.bgp.cone[x] for y in succs if y != x):
@@ -338,6 +441,16 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, RegexMixin, DebugMixin, H
             # If so, select that AS
             asns = [othermax]
         else:
+            # Check if origin in succs
+            # if iasns.keys() & succs.keys():
+            #     succ_origins = set()
+            #     for sasn, origins in sasn_origins.items():
+            #         if sasn in origins:
+            #             if debug.DEBUG: print('Succ {} in origins!'.format(sasn))
+            #             succ_origins.add(sasn)
+            #     if len(succ_origins) == 1 or len({self.as2org[orig] for orig in succ_origins}) == 1:
+            #         return peek(succ_origins), 4567
+
             # Otherwise, find vote ASes with relationship to a router interface AS
             votes_rels = []
             for vasn in votes:
@@ -394,6 +507,12 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, RegexMixin, DebugMixin, H
                         if sasn in router.dests and rasn not in router.dests:
                             asn = sasn
                             utype += 16000
+            if not asn:
+                for xasn in asns:
+                    if xasn in router.dests and all(oasn in self.bgp.cone[xasn] for oasn in asns if xasn != oasn):
+                        asn = xasn
+                        utype += 36000
+                        break
             # Tiebreaker 2 -- use only when tiebreaker 1 does not select an AS (most of the time)
             if not asn:
                 if debug.DEBUG: print('Conesizes: {}'.format({a: self.bgp.conesize[a] for a in asns}))
@@ -403,7 +522,8 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, RegexMixin, DebugMixin, H
                 utype += VOTE_TIE
 
         if asn not in iasns:
-            overlap = iasns.keys() & sorigins.keys()
+            overlap = {isucc.asn for isucc, isuccasns in router.origins.items() if isucc.asn in isuccasns and isucc.asn > 0}
+            # overlap = iasns.keys() & sorigins.keys()
             if debug.DEBUG: print('Overlap: {}'.format(overlap))
             if len(overlap) == 1:
                 if debug.DEBUG: print('Succs votes: {} < (2 * {}) / 3 = {}'.format(sorigins[asn], sum(sorigins.values()), (2 * sum(sorigins.values())) / 3))
@@ -443,7 +563,7 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, RegexMixin, DebugMixin, H
             return self.hidden_asn(iasns, asn, utype, votes)
         return asn, utype
 
-    def annotate_routers(self, routers: Collection[Router], usehints=False, use_provider=False, first=False, increment=100000):
+    def annotate_routers(self, routers: Collection[Router], usehints=False, use_provider=False, first=False, remap=False, increment=100000):
         pb = Progress(len(routers), 'Annotating routers', increment=increment)
         for router in pb.iterator(routers):
             asn = -1
@@ -451,7 +571,7 @@ class Bdrmapit(FirstHopMixin, LastHopsMixin, VRFMixin, RegexMixin, DebugMixin, H
             if usehints and router.hints:
                 asn, utype = self.annotate_router_hint(router, use_provider=use_provider)
             if asn <= 0:
-                asn, utype = self.annotate_router(router, first=first)
+                asn, utype = self.annotate_router(router, first=first, remap=False)
             self.rupdates.add_update(router, asn, self.as2org[asn], utype)
 
     def annotate_vrf_routers(self, routers: Collection[Router], increment=100000):

@@ -9,7 +9,8 @@ CREATE TABLE annotation(
     nexthop BOOLEAN,
     phop BOOLEAN,
     rtype INT,
-    itype INT
+    itype INT,
+    iasn INT
 );
 
 CREATE TABLE ixp(

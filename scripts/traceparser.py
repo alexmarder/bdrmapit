@@ -12,7 +12,7 @@ from traceutils.radix.ip2as import IP2AS, create_table
 from traceutils.scamper.atlas import AtlasReader
 from traceutils.scamper.hop import ICMPType, Hop
 from traceutils.scamper.warts import WartsReader, WartsJsonReader
-from traceutils.scamper.pyatlas import AtlasReader as AtlasOddReader
+# from traceutils.scamper.pyatlas import AtlasReader as AtlasOddReader
 
 _ip2as: Optional[IP2AS] = None
 _filemap4: Optional[Dict[str, str]] = None
@@ -76,8 +76,8 @@ class ParseResults:
             getattr(self, k).update(v)
 
 def parse(tfile: TraceFile):
-    public_ip4 = _filemap4.get(tfile.filename)
-    public_ip6 = _filemap6.get(tfile.filename)
+    # public_ip4 = _filemap4.get(tfile.filename)
+    # public_ip6 = _filemap6.get(tfile.filename)
     results: ParseResults = ParseResults()
     if tfile.type == OutputType.WARTS:
         f = WartsReader(tfile.filename, ping=False)
@@ -90,6 +90,12 @@ def parse(tfile: TraceFile):
     else:
         raise Exception('Invalid output type: {}.'.format(tfile.type))
     f.open()
+    if f.addr:
+        public_ip4 = f.addr
+        public_ip6 = f.addr
+    else:
+        public_ip4 = _filemap4[f.hostname] if f.hostname in _filemap4 else _filemap4.get(tfile.filename)
+        public_ip6 = _filemap6[f.hostname] if f.hostname in _filemap6 else _filemap6.get(tfile.filename)
     try:
         fiter = iter(f)
         while True:
