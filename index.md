@@ -20,10 +20,7 @@ conda activate bdrmapit
 **cython currently prevents using python >= 3.9**
 
 ## Required Packages
-There are three required packages:
-1. [<tt>traceutils</tt>](https://github.com/alexmarder/traceutils) – set of utilities that enable the other required packages (`pip install -U traceutils`)
-2. [<tt>ip2as</tt>](https://github.com/alexmarder/ip2as/wiki) – creates the prefix to AS mappings needed to determine the origin AS for each IP address (`pip install -U ip2as`)
-3. <tt>bdrmapit</tt> – runs <tt>bdrmapIT</tt>
+All required packages can be installed from the requirements file or by installing the <tt>bdrmapit</tt> package via pip.
 
 ## Optional Packages
 There is one optional package that makes retrieving datasets easier.
@@ -34,9 +31,7 @@ Make sure to install all dependencies in this environement, whether installing p
 
 # Installing bdrmapIT
 ## Install Using pip
-It is now possible to install bdrmapIT and the required repositories using pip and python3.
-Make sure to first install `traceutils` and `ip2as` (e.g. `pip install -U traceutils ip2as`).
-Then install the bdrmapit package `pip install -U bdrmapit`.
+It is possible to install bdrmapIT and the required repositories using pip and python3: `pip install -U bdrmapit`.
 
 ## Compilation From Source
 There are several packages involved in running bdrmapIT.
